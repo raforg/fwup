@@ -22,9 +22,9 @@
 
 # meta-firewall - control script for managing multiple remote firewalls
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
-PATH=/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin export PATH
+PATH=/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin; export PATH
 
 [ -z "$root" ] && root="root"                 # change for alternate superuser
 [ -z "$mfwd" ] && mfwd="/etc/meta-firewall.d" # meta-firewall data directory
@@ -100,9 +100,10 @@ case "$1" in
 		[ -f "$mfwd/firewall" ] || die "failed to find $mfwd/firewall (check installation)"
 		[ -f "$mfwd/fwup" ] || die "failed to find $mfwd/fwup (check installation)"
 		[ -f "$mfwd/fwdown" ] || die "failed to find $mfwd/fwdown (check installation)"
+		[ -f "$mfwd/fwprobe" ] || die "failed to find $mfwd/fwprobe (check installation)"
 		[ "$verbose" = "yes" ] && set -x
-		scp "$mfwd/make-install" "$mfwd/make-uninstall" "$mfwd/make-policy" "$mfwd/make-ls" "$mfwd/firewall" "$mfwd/fwup" "$mfwd/fwdown" "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp files to $2"
-		ssh -x "$root@$2" "./make-install && rm ./firewall.policy ./fwup ./fwdown" || die "failed to ssh make-install on $2"
+		scp "$mfwd/make-install" "$mfwd/make-uninstall" "$mfwd/make-policy" "$mfwd/make-ls" "$mfwd/firewall" "$mfwd/fwup" "$mfwd/fwdown" "$mfwd/fwprobe" "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp files to $2"
+		ssh -x "$root@$2" "./make-install && rm ./firewall.policy ./fwup ./fwdown ./fwprobe" || die "failed to ssh make-install on $2"
 		set +x
 		;;
 

@@ -1,0 +1,91 @@
+#!/usr/bin/perl -w
+use strict;
+
+# firewall - http://fwup.org/
+#
+# Copyright (C) 1999-2004 raf <raf@raf.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# update-reserved-networks - Update the contents of $RESERVED_NETWORKS in fwup
+#
+# 20041015 raf <raf@raf.org>
+
+my @ipv4; # The list of ipv4-address-space files (may have multiple copies?)
+my @net;  # The list of reserved networks from the ipv4-address-space file
+my $date; # The date that the ipv4-address-space file was last updated
+my @mask; # The optimal set of network masks
+
+# Locate the ipv4-address-space file
+
+if (!(@ipv4 = reverse glob 'ipv4-address-space*'))
+{
+	system "wget -q http://www.iana.org/assignments/ipv4-address-space";
+	die "Failed to wget the ipv4-address-space file from the IANA\n" if $?;
+	@ipv4 = glob 'ipv4-address-space' or die "Failed to find the ipv4-address-space file\n";
+}
+
+# Obtain a list of reserved networks
+
+open IPV4, $ipv4[0] or die "Failed to open '$ipv4[0]' for reading: $!\n";
+
+while (<IPV4>)
+{
+	next if /^127\/8/;
+	$date = $1, next if /\(last updated ([^)\]]+)\)/;
+	next unless my ($octet) = /^(\d{3})\/8\s+\w+\s+\d+\s+IANA - Reserved/;
+	$octet =~ s/^0+(?=\d)//;
+	push @net, $octet;
+}
+
+close IPV4;
+
+die "Failed to find any networks in $ipv4[0]\n" unless @net;
+
+# Reduce the list of reserved networks to an optimal set of network masks
+
+for (my $i = 0; $i < @net; )
+{
+	my $ip = $net[$i];
+	my $bit = 1;
+
+	for (; $bit <= 8 && !($ip & (1 << ($bit - 1))); ++$bit)
+	{
+		my $j = $i + (1 << $bit) - 1;
+		last unless defined $net[$j] && $net[$j] == $ip + $j - $i;
+	}
+
+	push @mask, "$ip.0.0.0/" . (8 - ($bit - 1));
+	$i += 1 << ($bit - 1);
+}
+
+# Update the fwup file that was specified on the command line
+
+my $fwup = $ARGV[0] or die "usage: $0 fwup\n";
+open FWUP, $fwup or die "Failed to open '$fwup' for reading: $!\n";
+undef $/;
+my $code = <FWUP>;
+my $orig = $code;
+close FWUP;
+$code =~ s/^RESERVED_NETWORKS="[\d.\/ ]*"$/RESERVED_NETWORKS="@{[join ' ', @mask]}"/m;
+die "No changes made ($fwup is already up to date or it isn't fwup)\n" if $code eq $orig;
+$code =~ s/ipv4-address-space \[[^\]]+\]/ipv4-address-space [$date]/ if defined $date;
+open FWUP, ">$fwup" or die "Failed to open '$fwup' for writing: $!\n";
+print FWUP $code;
+close FWUP;
+
+# vi:set ts=4 sw=4:

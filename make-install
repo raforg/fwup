@@ -22,7 +22,7 @@
 
 # make-install - Install the firewall scripts (without make)
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 [ -z "$STOP_LEVELS" ] && STOP_LEVELS="0 1 6"     # halt, single user, reboot
 [ -z "$START_LEVELS" ] && START_LEVELS="2 3 4 5" # every other runlevel
@@ -31,8 +31,7 @@
 
 . firewall.policy || exit 1
 [ -d $root/usr/local/sbin ] || mkdir $root/usr/local/sbin || exit 1
-install -m 744 fwup $root/usr/local/sbin || exit 1
-install -m 744 fwdown $root/usr/local/sbin || exit 1
+install -m 744 fwup fwdown fwprobe $root/usr/local/sbin || exit 1
 create() { if [ ! -f $1 ]; then echo '#!/bin/sh' > $1; echo >> $1; chmod u+x $1; fi; }
 reload() { create $1; grep -q '/firewall reload' $1 || echo "[ -x $loc/firewall ] && $loc/firewall reload" | sed -e 's/provide-previous-regular-expression//' -e "s/$root//g" >> $1; }
 script() { grep -q "^script.\*$2\$" $1 || echo "script $3" | sed -e 's/provide-previous-regular-expression//' -e "s/$root//g" >> $1; }

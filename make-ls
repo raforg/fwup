@@ -22,10 +22,10 @@
 
 # make-ls - List the firewall installation (without make)
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 echo "Installed files:"
-ls -l /etc/rc.d/init.d/firewall /etc/init.d/firewall /etc/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall /etc/rc?.d/[SK][0-9][0-9]firewall /etc/ppp/ip-up.d/00firewall /etc/ppp/ip-down.d/00firewall 2>/dev/null
+ls -l /etc/rc.d/init.d/firewall /etc/init.d/firewall /etc/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /usr/local/sbin/fwprobe /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall /etc/rc?.d/[SK][0-9][0-9]firewall /etc/ppp/ip-up.d/00firewall /etc/ppp/ip-down.d/00firewall 2>/dev/null
 echo "Modified files:"
 modified="`grep -l '/firewall reload' /etc/rc.d/rc.local /etc/rc.local /etc/ppp/ip-up.local /etc/ppp/ip-down.local /etc/dhcpc/dhcpcd-*.exe /etc/dhclient-exit-hooks /etc/pump.firewall 2>/dev/null`"
 [ -n "$modified" ] && ls -l $modified

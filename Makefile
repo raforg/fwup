@@ -21,7 +21,7 @@
 
 # Makefile - fwup
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \
@@ -73,7 +73,7 @@ dist:
 	dst=firewall-`date +%Y%m%d`; \
 	cd ..; \
 	test "$$src" != "$$dst" -a ! -e "$$dst" && ln -s $$src $$dst; \
-	tar chzf $$dst.tar.gz $$dst/[RMfm]* $$dst/examples/* $$dst/tools/* $$dst/patches/*; \
+	tar chzf $$dst.tar.gz $$dst/[RMfm]* $$dst/update-reserved-networks $$dst/examples/* $$dst/tools/* $$dst/patches/*; \
 	test -h "$$dst" && rm -f $$dst; \
 	tar tzvf $$dst.tar.gz
 
@@ -83,4 +83,4 @@ backup:
 	tar czf $$name.tar.gz $$name; \
 	tar tzvf $$name.tar.gz
 
-# vi:set ts=4 sw=4
+# vi:set ts=4 sw=4:

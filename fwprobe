@@ -1,0 +1,126 @@
+#!/bin/sh
+#
+# firewall - http://fwup.org/
+#
+# Copyright (C) 1999-2004 raf <raf@raf.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# fwprobe - Display the current state of the firewall
+#
+# 20041231 raf <raf@raf.org>
+
+##############################################################################
+# Usage: [policy=filename] fwprobe
+#
+# The policy variable determines the policy file to implement. By default,
+# it is /etc/firewall.policy. Setting this in the policy file has no effect.
+#
+
+##############################################################################
+# Start by checking that we've got everything we need
+#
+
+# Set the path explicitly
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin; export PATH
+
+if [ -z "$PROG_NAME" ]
+then
+	[ -x /bin/basename ] && PROG_NAME="`basename $0`" || PROG_NAME="fwprobe"
+fi
+
+log()
+{
+	logger -t "$PROG_NAME" -p daemon.notice $*
+}
+
+die()
+{
+	log -s $*
+	exit 1
+}
+
+warn()
+{
+	log -s $*
+}
+
+locate()
+{
+	for dir in `echo $PATH | sed 's/:/ /g'`
+	do
+		[ -x "$dir/$1" ] && echo "$dir/$1" && break
+	done
+}
+
+# Source the network configuration (if redhat)
+
+[ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
+
+# Check that networking is required (if redhat)
+
+[ "$NETWORKING" = "no" ] && exit 0
+
+# Check that ipchains is available
+
+ipchains="$(locate ipchains)"
+[ -z "$ipchains" ] && die "failed to find executable ipchains"
+
+# Look for ipmasqadm and ip
+
+ipmasqadm="$(locate ipmasqadm)"
+ip="$(locate ip)"
+
+# Probe the firewall
+
+echo ipchains -L -v -n
+echo ~~~~~~~~~~~~~~~~~
+"$ipchains" -L -v -n
+
+echo
+echo ipchains -M -L -v -n
+echo ~~~~~~~~~~~~~~~~~~~~
+"$ipchains" -M -L -v -n
+
+if [ -n "$ipmasqadm" ]
+then
+	echo
+	echo ipmasqadm portfw -l -n
+	echo ~~~~~~~~~~~~~~~~~~~~~~
+	"$ipmasqadm" portfw -l -n
+	echo
+	echo ipmasqadm mfw -L -n
+	echo ~~~~~~~~~~~~~~~~~~~
+	"$ipmasqadm" mfw -L -n
+fi
+
+if [ -n "$ip" ]
+then
+	echo
+	echo ip rule show
+	echo ~~~~~~~~~~~~
+	"$ip" rule show
+	echo
+	echo ip route show
+	echo ~~~~~~~~~~~~~
+	"$ip" route show
+fi
+
+exit 0
+
+# vi:set ts=4 sw=4:

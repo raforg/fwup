@@ -2,16 +2,18 @@ README
 ~~~~~~
 firewall - Linux-2.2 ipchains firewall/NAPT/NAT administration
 
-Firewall is a set of scripts (firewall, fwup and fwdown) that implement an
-ipchains firewall and various forms of network address and port translation.
-All you have to do is read the policy file and edit it to reflect your
-topology and filtering policy.
+Firewall is a set of scripts (firewall, fwup and fwdown) that implement one
+or more ipchains firewalls that support various forms of network address and
+port translation. All you have to do is read the heavily documented policy
+file and edit it to reflect your network topology and filtering policy.
 
 The policy file is composed of sections in which you need to specify: this
 host's trusted and untrusted network interfaces; this host's role and
 function within the network topology; and the incoming and outgoing services
 to allow and the internal and external hosts that may take part in them. It
-has been designed so as to make this as painless and flexible as possible.
+has been designed so as to make this as painless and flexible as possible
+but you must be willing to do some reading. There are several examples to
+look at in the examples directory.
 
 Each section contains detailed explanations and advice on things such as
 when to start the firewall and the security implications of various well
@@ -23,10 +25,10 @@ filtering part) in a very short time. Of course, it will not prevent you
 from achieving bad network security, but you will have been warned.
 
 Each section also contains commented out variables that can be uncommented
-and possibly edited to supply policy information to fwup. Most of them
-show the default values used by fwup. Others are choices. Others still are
-just examples. Hopefully it's clear which is which. Each policy variable
-is explained when encountered.
+and possibly edited to supply policy information to the firewall. Most of
+them show the default values used by the firewall. Others are choices.
+Others still are just examples. Hopefully it's clear which is which. Each
+policy variable is explained when encountered.
 
 Various network topologies are supported:
 
@@ -175,8 +177,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20041215.tar.gz
-    cd firewall-20041215
+    tar xzf firewall-20041231.tar.gz
+    cd firewall-20041231
 
 If you are upgrading and have an existing firewall.policy, you could try to
 migrate your existing policy into the new policy file (as root):
@@ -231,8 +233,8 @@ manage multiple remote firewalls.
 
 Unpack the distribution:
 
-    tar xzf firewall-20041215.tar.gz
-    cd firewall-20041215
+    tar xzf firewall-20041231.tar.gz
+    cd firewall-20041231
 
 Install (as root):
 
@@ -291,13 +293,13 @@ ssh from the administration host or you won't be able to update it later :)
 
 LRP PACKAGE INSTALL
 ~~~~~~~~~~~~~~~~~~~
-You can create an LRP package after defining your firewall policy and install
-it onto an LRP system.
+You can create an Linux Router Project (LRP) package after defining your
+firewall policy and install it onto an LRP system.
 
 Unpack the distribution (on a non-LRP system):
 
-    tar xzf firewall-20041215.tar.gz
-    cd firewall-20041215
+    tar xzf firewall-20041231.tar.gz
+    cd firewall-20041231
 
 If you are upgrading and have an existing firewall.policy, you could try to
 migrate your existing policy into the new policy file (as root):
@@ -339,9 +341,23 @@ The tools/portscan script may be useful here. If there are any surprises,
 investigate. It is imperative that you know what your firewall does and
 doesn't do.
 
+UPDATING
+~~~~~~~~
+The firewall uses the IANA's list of reserved networks. This list changes
+over time. Therefore, the firewall needs to be kept up to date with the
+current version of the list. The script "update-reserved-networks" downloads
+the latest version of the list from the IANA's website and then modifies the
+script that brings up the firewall accordingly. This is not automated. I
+wonder if it should be. I don't think I could bare the thought of re-writing
+it in shell. When you notice that some packets are being dropped as spoof
+packets, it probably means that it's time to run update-reserved-networks on
+the firewall scripts.
+
 EXTRAS
 ~~~~~~
-The examples directory contains several example policy files.
+The examples directory contains several example policy files. They
+demonstrate all supported types of network topology, some with detailed
+policies. They should be considered mandatory reading.
 
 The tools directory contains the following utilities:
 
@@ -598,6 +614,14 @@ HISTORY
     - Added $MASQUERADED_NETWORKS to masquerade selected internal networks
     - Updated IANA reserved networks (2003-11-14)
 
+20041231
+
+    - Updated examples/policy.* to include earlier changes to firewall.policy
+    - Made messages conform to Debian standards (except when on Redhat)
+    - Updated IANA reserved networks (2004-08-03)
+    - Added update-reserved-networks script so users can update them easily
+    - Extracted fwprobe as a separate command from "firewall probe"
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -616,8 +640,11 @@ www.seifried.org ports list
 
 BUGS
 ~~~~
-- Masquerading the H.323 services (e.g. HOTTELEPHONE) doesn't work. If anyone
-  would like to help me test it and get it working, please contact me.
+- I've been told that masquerading the H.323 services (e.g. HOTTELEPHONE)
+  doesn't work but wasn't given any details and the person who reported it
+  didn't seem interested in helping me fix whatever the problem might have
+  been. If anyone would like to help me test it and get it working (if indeed
+  it doesn't work), please contact me.
 
 - The *SERVERS* and *CLIENTS* policy variables for a given service apply to all
   instances of a service across a given interface. This means that if you have
@@ -706,5 +733,5 @@ Add implementations for iptables, ipf and cisco ios/cbac
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20041215
+Date: 20041231
 Author: raf <raf@raf.org>

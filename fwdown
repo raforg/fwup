@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown
@@ -45,6 +45,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin; export PATH
 # Define a version of redhat's action function that copes with functions
 
 [ -n "$ZSH_VERSION" ] && setopt -y # SH_WORD_SPLIT
+[ -f /etc/redhat-release ] && COLOURFUL="yes" || COLOURFUL="no"
 
 if [ "x`echo -en test`" != x"-en test" ] # disable under ash
 then
@@ -56,9 +57,9 @@ then
 	else
 		MOVE_TO_COL=""
 	fi
-	SETCOLOR_SUCCESS="echo -en \\033[1;32m"
-	SETCOLOR_FAILURE="echo -en \\033[1;31m"
-	SETCOLOR_NORMAL="echo -en \\033[0;39m"
+	SETCOLOUR_SUCCESS="echo -en \\033[1;32m"
+	SETCOLOUR_FAILURE="echo -en \\033[1;31m"
+	SETCOLOUR_NORMAL="echo -en \\033[0;39m"
 fi
 
 if [ -z "$PROG_NAME" ]
@@ -80,34 +81,47 @@ die()
 success()
 {
 	local msg="$1"
-	log $msg succeeded
-	echo -n $msg
-	$MOVE_TO_COL
-	echo -n "[  "
-	$SETCOLOR_SUCCESS
-	echo -n "OK"
-	$SETCOLOR_NORMAL
-	echo "  ]"
+	log $msg succeeded.
+
+	if [ "$COLOURFUL" = yes ]
+	then
+		$MOVE_TO_COL
+		echo -n "[  "
+		$SETCOLOUR_SUCCESS
+		echo -n "OK"
+		$SETCOLOUR_NORMAL
+		echo "  ]"
+	else
+		echo "done."
+	fi
+
 	return 0
 }
 
 failure()
 {
 	local msg="$1"
-	log $msg failed
-	echo -n $msg
-	$MOVE_TO_COL
-	echo -n "["
-	$SETCOLOR_FAILURE
-	echo -n "FAILED"
-	$SETCOLOR_NORMAL
-	echo "]"
+	log $msg failed.
+
+	if [ "$COLOURFUL" = yes ]
+	then
+		$MOVE_TO_COL
+		echo -n "["
+		$SETCOLOUR_FAILURE
+		echo -n "FAILED"
+		$SETCOLOUR_NORMAL
+		echo "]"
+	else
+		echo "failed."
+	fi
+
 	return 1
 }
 
 action()
 {
 	local msg="$1"; shift
+	echo -n "$msg..."
 	$* && success "$msg" || failure "$msg"
 }
 

@@ -22,7 +22,7 @@
 
 # make-meta-install - Install the meta-firewall control script (without make)
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 die() { echo "$0: $*" >&2; exit 1; }
 
@@ -35,6 +35,7 @@ install -m 744 make-ls "$mfwd" || die "failed to install make-ls into $mfwd"
 install -m 744 firewall "$mfwd" || die "failed to install firewall into $mfwd"
 install -m 744 fwup "$mfwd" || die "failed to install fwup into $mfwd"
 install -m 744 fwdown "$mfwd" || die "failed to install fwdown into $mfwd"
+install -m 744 fwprobe "$mfwd" || die "failed to install fwprobe into $mfwd"
 install -m 644 firewall.policy "$mfwd" || die "failed to install firewall.policy into $mfwd"
 install -m 744 migrate-policy "$mfwd" || die "failed to install migrate-policy into $mfwd"
 if [ -d /etc/rc.d/init.d ]; then install -m 744 meta-firewall /etc/rc.d/init.d || die "failed to install meta-firewall into /etc/rc.d/init.d"

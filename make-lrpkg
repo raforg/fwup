@@ -22,7 +22,7 @@
 
 # make-lrp - Generate an LRP package (without make)
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 # Prepare an LRP style tree in which to install the firewall
 
@@ -86,7 +86,7 @@ echo >> "$help"
 
 # Create firewall.version
 
-echo "20041215-1" > "$version"
+echo "20041231-1" > "$version"
 echo >> "$version"
 
 # Create firewall.list

@@ -25,125 +25,73 @@
 # chkconfig: 2345 00 99
 # description: Firewall provides network security and address/port translation
 #
-# 20041215 raf <raf@raf.org>
+# 20041231 raf <raf@raf.org>
 
 # Set the path explicitly
-
-PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
-export PATH
+PATH=.:/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin; export PATH
 
 # Source networking configuration (if redhat)
-
 [ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
 
 # Check that networking is required (if redhat)
-
 [ "$NETWORKING" = "no" ] && exit 0
 
-# Locations of the files we will need
+# Define some functions
+SPLITPATH="`echo $PATH | sed 's/:/ /g'`"
+locate() { for dir in $SPLITPATH; do [ -x "$dir/$1" ] && echo "$dir/$1" && break; done; }
+die() { logger -t "`basename $0`" -p daemon.notice -s $*; exit 1; }
 
-locate()
-{
-	for dir in `echo $PATH | sed 's/:/ /g'`
-	do
-		[ -x "$dir/$1" ] && echo "$dir/$1" && break
-	done
-}
-
+# Locations of the policy file and the lock file
+policy="/etc/firewall.policy"
 [ -d /var/lock/subsys ] && lock="/var/lock/subsys/firewall" || lock=""
 [ -z "$lock" ] && [ -d /var/lock ] && lock="/var/lock/firewall"
 [ -z "$lock" ] && lock="/tmp/firewall.lock"
 
-policy="/etc/firewall.policy"
-fwup="$(locate fwup)"
-fwdown="$(locate fwdown)"
-ipchains="$(locate ipchains)"
-ipmasqadm="$(locate ipmasqadm)"
-ip="$(locate ip)"
-
-die()
-{
-	logger -t "`basename $0`" -p daemon.notice -s $*
-	exit 1
-}
-
 # See how we were called
-
 case "$1" in
 
 	start|up)
-		[ -f "$lock" ] && die "The Firewall is already up"
-		[ -z "$fwup" ] && die "Failed to find executable fwup"
-		[ ! -r "$policy" ] && die "Failed to find readable $policy"
+		[ -f "$lock" ] && die "The Firewall is already up."
+		fwup="$(locate fwup)"
+		[ -z "$fwup" ] && die "Failed to find executable fwup."
+		[ ! -r "$policy" ] && die "Failed to find readable $policy."
 		policy="$policy" "$fwup" && touch "$lock"
-		exit $?
 		;;
 
 	stop|down)
-		[ ! -f "$lock" ] && die "The Firewall is already down"
-		[ -z "$fwdown" ] && die "Failed to find executable fwdown"
-		[ ! -r $policy ] && die "Failed to find readable $policy"
+		[ ! -f "$lock" ] && die "The Firewall is already down."
+		fwdown="$(locate fwdown)"
+		[ -z "$fwdown" ] && die "Failed to find executable fwdown."
+		[ ! -r $policy ] && die "Failed to find readable $policy."
 		policy="$policy" "$fwdown" && rm -f "$lock"
-		exit $?
 		;;
 
 	restart)
-		$0 stop && $0 start
-		exit $?
+		$0 stop || die "Failed to stop the firewall."
+		$0 start || die "Failed to start the firewall."
 		;;
 
 	reload|force-reload)
-		rm -f "$lock"
-		$0 start
-		exit $?
+		if [ -f "$lock" ]; then rm "$lock" || die "Failed to remove the lock file."; fi
+		$0 start || die "Failed to reload the firewall."
 		;;
 
 	reconf)
 		[ -z "$2" ] && die "usage: $0 reconf <config>"
-		[ -r "$policy.$2" ] || die "Failed to find readable policy: $policy.$2"
-		cat "$policy.$2" > "$policy" || die "Failed to reconfigure the firewall"
-		if [ -f "$lock" ]; then $0 reload; exit $?; fi
+		[ -r "$policy.$2" ] || die "Failed to find readable policy: $policy.$2."
+		cat "$policy.$2" > "$policy" || die "Failed to reconfigure the firewall."
+		[ ! -f "$lock" ] || $0 reload
 		;;
 
 	status)
-		[ -f "$lock" ] && echo "The Firewall is up" || echo "The Firewall is down"
+		[ -f "$lock" ] && echo "The Firewall is up." || echo "The Firewall is down."
 		;;
 
 	probe)
-		[ -z "$ipchains" ] && die "Failed to find executable ipchains"
-
-		echo ipchains -L -v -n
-		echo ~~~~~~~~~~~~~~~~~
-		"$ipchains" -L -v -n
-
-		echo
-		echo ipchains -M -L -v -n
-		echo ~~~~~~~~~~~~~~~~~~~~
-		"$ipchains" -M -L -v -n
-
-		if [ -n "$ipmasqadm" ]
-		then
-			echo
-			echo ipmasqadm portfw -l -n
-			echo ~~~~~~~~~~~~~~~~~~~~~~
-			"$ipmasqadm" portfw -l -n
-			echo
-			echo ipmasqadm mfw -L -n
-			echo ~~~~~~~~~~~~~~~~~~~
-			"$ipmasqadm" mfw -L -n
-		fi
-
-		if [ -n "$ip" ]
-		then
-			echo
-			echo ip rule show
-			echo ~~~~~~~~~~~~
-			"$ip" rule show
-			echo
-			echo ip route show
-			echo ~~~~~~~~~~~~~
-			"$ip" route show
-		fi
+		fwprobe="$(locate fwprobe)"
+		[ -z "$fwprobe" ] && die "Failed to find executable fwprobe."
+		[ ! -r "$policy" ] && die "Failed to find readable $policy."
+		policy="$policy" "$fwprobe"
 		;;
 
 	*help)
@@ -167,6 +115,6 @@ case "$1" in
 
 esac
 
-exit 0
+exit $?
 
 # vi:set ts=4 sw=4:
