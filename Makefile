@@ -19,8 +19,9 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# Install the firewall scripts
-# 20000421 raf <raf2@zip.com.au>
+# Makefile - Install the firewall scripts
+#
+# 20000430 raf <raf2@zip.com.au>
 
 help:
 	@echo "This Makefile supports the following targets"
@@ -29,21 +30,22 @@ help:
 	@echo "    install   - install the firewall scripts (as root)"
 	@echo "    policy    - install firewall.policy (as root)"
 	@echo "    uninstall - uninstall the firewall scripts and policy (as root)"
-	@echo "    list      - list installed firewall scripts and policy"
-	@echo "    dist      - make a distribution"
-	@echo "    MANIFEST  - create a manifest file"
+	@echo "    show      - show installed firewall scripts and policy file"
 	@echo "    decent    - change \"EVIL\" to \"EXTREMELY_DANGEROUS\" (before install)"
+	@echo "    MANIFEST  - create a manifest file"
+	@echo "    dist      - make a distribution"
+	@echo "    backup    - make a backup"
 	@echo
 
-SRC = firewall firewall.policy fwdown fwhelper fwup
 START = rc2.d rc3.d rc4.d rc5.d
-KILL = rc0.d rc1.d rc6.d
+STOP = rc0.d rc1.d rc6.d
 
 install:
 	install -m 744 fwup /usr/local/sbin
 	install -m 744 fwdown /usr/local/sbin
 	install -m 755 firewall /etc/rc.d/init.d
-	for code in S09 K91; do for rc in $(START); do [ -x /etc/rc.d/$$rc/$${code}firewall ] || ln -s ../init.d/firewall /etc/rc.d/$$rc/$${code}firewall; done; done
+	for rc in $(START); do [ -x /etc/rc.d/$$rc/S09firewall ] || ln -s ../init.d/firewall /etc/rc.d/$$rc/S09firewall; done
+	for rc in $(STOP); do [ -x /etc/rc.d/$$rc/K91firewall ] || ln -s ../init.d/firewall /etc/rc.d/$$rc/K91firewall; done
 
 policy:
 	install -m 600 firewall.policy /etc
@@ -51,8 +53,14 @@ policy:
 uninstall:
 	rm -f /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
 
-list:
+show:
 	@ls -l /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
+
+decent:
+	@perl -pi -e 's/EVIL/EXTREMELY_DANGEROUS/g' fwup firewall.policy examples/*
+
+MANIFEST:
+	@ls -1 [RMf]* examples/* tools/* > MANIFEST
 
 dist: MANIFEST
 	@src=`basename \`pwd\``; \
@@ -64,10 +72,10 @@ dist: MANIFEST
 	rm -f $$src/MANIFEST; \
 	tar tzf $$dst.tar.gz
 
-MANIFEST:
-	@(ls -1 [RMf]* examples/* tools/*) > MANIFEST
-
-decent:
-	@perl -pi -e 's/EVIL/EXTREMELY_DANGEROUS/g' fwup firewall.policy examples/*
+backup:
+	@name=`basename \`pwd\``; \
+	cd ..; \
+	tar czf $$name.tar.gz $$name; \
+	tar tzf $$name.tar.gz
 
 # vi:set ts=4 sw=4:

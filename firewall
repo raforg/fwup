@@ -20,7 +20,7 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# Startup script for an ipchains packet filtering firewall
+# firewall - Startup script for an ipchains packet filtering firewall
 #
 # name: /etc/rc.d/init.d/firewall
 # description: firewall provides network security
@@ -28,7 +28,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000421 raf <raf2@zip.com.au>
+# 20000430 raf <raf2@zip.com.au>
 
 # Source networking configuration (if redhat)
 
@@ -38,42 +38,39 @@
 
 [ "$NETWORKING" = "no" ] && exit 0
 
-# Names of the files we will need
+# Locations of the files we will need
+
 lock=/var/lock/subsys/firewall
+policy=/etc/firewall.policy
 fwup=/usr/local/sbin/fwup
 fwdown=/usr/local/sbin/fwdown
+ipchains=/sbin/ipchains
+ipmasqadm=/usr/sbin/ipmasqadm
+ip=/sbin/ip
+
+die()
+{
+	logger -t "`basename $0`" -p daemon.notice -s $*
+	exit 1
+}
 
 # See how we were called
 case "$1" in
 
 	start|up)
-		if [ -e $lock ]
-		then
-			echo "The Firewall is already up" >&2
-			exit 1
-		fi
+		[ -e $lock ] && die "The Firewall is already up"
 
-		if [ ! -x $fwup ]
-		then
-			echo "$0: failed to find executable $fwup" >&2
-			exit 1
-		fi
+		[ ! -x $fwup ] && die "Failed to find executable $fwup"
+		[ ! -r $policy ] && die "Failed to find readable $policy"
 
 		$fwup && touch $lock
 		;;
 
 	stop|down)
-		if [ ! -e $lock ]
-		then
-			echo "The Firewall is already down" >&2
-			exit 1
-		fi
+		[ ! -e $lock ] && die "The Firewall is already down"
 
-		if [ ! -x $fwdown ]
-		then
-			echo "$0: failed to find executable $fwdown" >&2
-			exit 1
-		fi
+		[ ! -x $fwdown ] && die "Failed to find executable $fwdown"
+		[ ! -r $policy ] && die "Failed to find readable $policy"
 
 		$fwdown && rm -f $lock
 		;;
@@ -83,37 +80,36 @@ case "$1" in
 		;;
 
 	probe)
-		if [ ! -x /sbin/ipchains ]
+		[ ! -x $ipchains ] && die "failed to find executable $ipchains"
+
+		echo ipchains -L -v -n
+		echo ~~~~~~~~~~~~~~~~~
+		$ipchains -L -v -n
+
+		echo
+		echo ipchains -M -L -v -n
+		echo ~~~~~~~~~~~~~~~~~~~~
+		$ipchains -M -L -v -n
+
+		if [ -x $ipmasqadm ]
 		then
-			echo "$0: failed to find executable /sbin/ipchains" >&2
-			exit 1
+			echo
+			echo ipmasqadm portfw -l -n
+			echo ~~~~~~~~~~~~~~~~~~~~~~
+			$ipmasqadm portfw -l -n
 		fi
 
-		(
-			echo ipchains -L -v -n
-			echo ~~~~~~~~~~~~~~~~~
-			/sbin/ipchains -L -v -n
-
-			if [ -x /usr/sbin/ipmasqadm ]
-			then
-				echo
-				echo ipmasqadm portfw -l -n
-				echo ~~~~~~~~~~~~~~~~~~~~~~
-				/usr/sbin/ipmasqadm portfw -l -n
-			fi
-
-			if [ -x /sbin/ip ]
-			then
-				echo
-				echo ip rule show
-				echo ~~~~~~~~~~~~
-				/sbin/ip rule show
-				echo
-				echo ip route show
-				echo ~~~~~~~~~~~~~
-				/sbin/ip route show
-			fi
-		) | /bin/more
+		if [ -x $ip ]
+		then
+			echo
+			echo ip rule show
+			echo ~~~~~~~~~~~~
+			$ip rule show
+			echo
+			echo ip route show
+			echo ~~~~~~~~~~~~~
+			$ip route show
+		fi
 		;;
 
 	restart)
@@ -127,7 +123,7 @@ case "$1" in
 		;;
 
 	*)
-		echo "Usage: $0 {start|stop|up|down|restart|reload|status|probe}"
+		echo "usage: $0 {start|stop|up|down|restart|reload|status|probe}"
 		exit 1
 		;;
 

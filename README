@@ -135,18 +135,19 @@ Here is the list of currently supported services:
 Note: Don't trust it. Test it. Many services haven't been tested yet.
 
 Please send me any success reports, bug reports, criticism, comments,
-suggestions, patches, pointers to more information, ...
+corrections, suggestions, patches, pointers to more information, ...
 
 INSTALL
 ~~~~~~~
 The Makefile was written for a Redhat 6.0 Linux 2.2 system. It assumes a
-Redhat 6.0 /etc/rc.d layout (so you might have to edit the Makefile or install
-manually). See REQUIREMENTS for run-time requirements.
+Redhat 6.0 /etc/rc.d layout (so you might have to edit the Makefile or
+install manually). See REQUIREMENTS for runtime requirements.
 
 Install (as root):
 
-    tar xzf firewall-20000421.tar.gz
-    cd firewall-20000421
+    tar xzf firewall-20000430.tar.gz
+    cd firewall-20000430
+    make uninstall # if a previous version is installed
     make install
 
 Edit the sample policy file to reflect your filtering policy and install it:
@@ -166,18 +167,19 @@ After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
 your untrusted interfaces (as root from the inside and the outside) to make
 sure that you got what you wanted. If there are any surprises, investigate.
 
-If your untrusted interface(s) change IP address, reload the firewall in a
-script that executes as soon as each new IP address is established (e.g.
-/etc/ppp/ip-up.local or /etc/dhcp/*).
+Start the firewall at boot time both before and after the network interfaces
+are brought up. If your untrusted interface(s) change IP address, reload the
+firewall in a script that executes as soon as each new IP address is
+established (e.g. /etc/ppp/ip-up.local or /etc/dhcp/*).
 
 REQUIREMENTS
 ~~~~~~~~~~~~
 - Linux-2.2.x and ipchains
-- perl used by fwup and the utilities (dns2ip also requires Net-DNS-0.12)
 - ipmasqadm iff doing port forwarding
 - ip (iproute2) iff doing alias masquerading or static NAT (not implemented yet)
 - nmap used by the portscan utility
 - root privileges for ipchains, ipmasqadm, ip and nmap
+- perl used by most of the utilities (dns2ip also requires Net-DNS)
 
 COPYING
 ~~~~~~~
@@ -271,6 +273,16 @@ HISTORY
     - Added an example policy file for each type of supported network tpology
     - Made chain policies configurable (some like DENY, others like REJECT)
 
+20000430
+
+    - Fixed bug: make install was creating too many links in /etc/rc.d/rc?.d
+    - Fixed bug: success/error messages sent to /var/log/messages were pathetic
+    - Added portfw to the list of loadable masq modules in the policy file
+    - Added "ipchains -M -L -v -n" to "firewall probe"
+    - Made it possible to specify untrusted addresses in policy if all are static
+    - Removed all uses of perl from fwup (no longer determines masquerade ports
+      directly from kernel source but that was a silly idea anyway)
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -292,10 +304,6 @@ BUGS
 - Masquerading across multiple interfaces is not supported. This is probably
   a feature since doing so seems very strange. Let me know if this is a problem.
 
-- There is no support for alias masquerading or static NAT yet (next release).
-
-- Perl should not be used in fwup. It's too dangerous to have on a bastion host.
-
 - When port forwarding, internal hosts shouldn't try to make connections to
   the forwarded port on the external interface. If the port forwarding host
   tries, the connection will be made to the same host (i.e. the port is not
@@ -305,13 +313,17 @@ BUGS
   wrong direction, never to be seen again). If anyone knows a solution to
   this, I'd like to hear about it. In the meantime, the port forwarding
   host and other internal hosts must connect directly to internal ports.
+  This can be achieved simply by having a DNS server for internal use only,
+  that maps external names to internal addresses.
 
 - Stopping the firewall stops packet forwarding in general. This is intentional.
-  However, on Redhat systems with IPV4_FORWARD="yes" in /etc/sysconfig/network,
+  However, on Redhat systems with FORWARD_IPV4="yes" in /etc/sysconfig/network,
   packet forwarding isn't stopped when the firewall is stopped. This is a
   convenience (but it is unsafe).
 
 - There is no support for using ipchains' REDIRECT target.
+
+- There is no support for alias masquerading or static NAT yet (next release).
 
 TODO
 ~~~~
@@ -323,6 +335,6 @@ Port to netfilter when linux-2.4 is ready
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000421
+Date: 20000430
 Author: raf <raf2@zip.com.au>
 

@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000421 raf <raf2@zip.com.au>
+# 20000430 raf <raf2@zip.com.au>
 
 ##############################################################################
 # About the policy file
@@ -66,9 +66,12 @@
 # the firewall at boot time both before and after the network interfaces are
 # brought up. If this host receives dynamic IP addresses (e.g. via PPP or
 # DHCP), reload the firewall after receiving each new address as well (e.g.
-# in /etc/ppp/ip-up.local or /etc/dhcp/*). You can't specify permanent
-# addresses in the policy file because they can be and are determined by
-# fwup so you don't have to. I like this, YMMV.
+# in /etc/ppp/ip-up.local or /etc/dhcp/*). If all of the network interfaces
+# have static addresses (and port forwarding is not required), the firewall
+# can safely be started just once, at boot time, by specifying all of the
+# required addresses in the policy file (see INTERNAL_NETWORKS and
+# UNTRUSTED_ADDRESSES below). If port forwarding is required, the firewall
+# must be started after the interfaces are brought up.
 #
 # Note: All addresses/aliases on an interface are treated equally. This is
 # justified by the fact that it is the interface that is trusted or
@@ -93,8 +96,18 @@ UNTRUSTED_INTERFACES="ppp0"
 # will masquerade packets forwarded across internal, untrusted interfaces.
 INTERNAL_NETWORKS="10.0.0.0/24"
 
+# Identify the addresses of the untrusted interfaces iff the addresses of all
+# untrusted interfaces are statically known. Otherwise, fwup will determine
+# all of the addresses at runtime. If all of the untrusted addresses can be
+# specified here, it is safe to start the firewall just once, at boot time.
+# The format of UNTRUSTED_ADDRESSES is one word per untrusted interface.
+# Each word contains the address of the corresponding interface in
+# $UNTRUSTED_INTERFACES. If an interface has multiple addresses/aliases,
+# the word contains all of the addresses separated by commas.
+# UNTRUSTED_ADDRESSES=""
+
 # State which untrusted interfaces are connected to internal networks. This
-# prevents spoof protection from occurring on that interface. Otherwise,
+# prevents spoof protection from occurring on those interfaces. Otherwise,
 # private IP addresses would be blocked on internal interfaces.
 # INTERNAL_UNTRUSTED_INTERFACES=""
 
@@ -168,6 +181,7 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 # rules to fwup and please send me the patch.
 
 # MASQ_MODULES=""
+# MASQ_MODULES="$MASQ_MODULES portfw"
 # MASQ_MODULES="$MASQ_MODULES cuseeme"
 # MASQ_MODULES="$MASQ_MODULES ftp"
 # MASQ_MODULES="$MASQ_MODULES irc"

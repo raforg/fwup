@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000421 raf <raf2@zip.com.au>
+# 20000430 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1] fwup
@@ -49,19 +49,54 @@
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
-# Source the function library
+# Define a version of redhat's action function that copes with functions
 
-if [ -r /etc/rc.d/init.d/functions ]
-then
-	. /etc/rc.d/init.d/functions
-else
-	# Define a crappy version of redhat's action function
-	action()
-	{
-		echo -n "$1 "; shift
-		$* && echo "[ OK ]" || echo "[ FAILED ]"
-	}
-fi
+RES_COL=60
+[ -z "$COLUMNS" ] && COLUMNS=80
+MOVE_TO_COL="echo -en \\033[300C\\033[$[${COLUMNS}-${RES_COL}]D"
+SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+SETCOLOR_FAILURE="echo -en \\033[1;31m"
+SETCOLOR_NORMAL="echo -en \\033[0;39m"
+
+log()
+{
+	[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
+	logger -t "$PROG_NAME" -p daemon.notice $*
+}
+
+success()
+{
+	local msg="$1"
+	log $msg succeeded
+	echo -n $msg
+	$MOVE_TO_COL
+	echo -n "[  "
+	$SETCOLOR_SUCCESS
+	echo -n "OK"
+	$SETCOLOR_NORMAL
+	echo "  ]"
+	return 0
+}
+
+failure()
+{
+	local msg="$1"
+	log $msg failed
+	echo -n $msg
+	$MOVE_TO_COL
+	echo -n "["
+	$SETCOLOR_FAILURE
+	echo -n "FAILED"
+	$SETCOLOR_NORMAL
+	echo "]"
+	return 1
+}
+
+action()
+{
+	local msg="$1"; shift
+	$* && success "$msg" || failure "$msg"
+}
 
 # Source the network configuration (if redhat)
 
@@ -75,7 +110,7 @@ fi
 
 if [ ! -x /sbin/ipchains ]
 then
-	echo "$0: failed to find executable /sbin/ipchains" >&2
+	log -s "failed to find executable /sbin/ipchains"
 	exit 1
 fi
 
@@ -83,7 +118,7 @@ fi
 
 if [ ! -x /sbin/ifconfig ]
 then
-	echo "$0: failed to find executable /sbin/ifconfig" >&2
+	log -s "failed to find executable /sbin/ifconfig"
 	exit 1
 fi
 
@@ -100,7 +135,7 @@ grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
 
 if [ ! -r $policy ]
 then
-	echo "$0: failed to find readable $policy" >&2
+	log -s "failed to find readable $policy"
 	exit 1
 fi
 
@@ -167,39 +202,7 @@ fi
 # These are defined in /usr/src/linux/include/net/ip_masq.h
 # Note: This only works if the source reflects the currently running kernel
 
-[ -z "$masq_ports" ] && masq_ports=`perl -e '
-
-	my $min;
-	my $max;
-
-	if (open(MASQ, "/usr/src/linux/include/net/ip_masq.h"))
-	{
-		while (<MASQ>)
-		{
-			/^\s*#\s*define\s+PORT_MASQ_BEGIN\s+(\d+)/ and do
-			{
-				$min = $1;
-				next;
-			};
-
-			/^\s*#\s*define\s+PORT_MASQ_END\s+(\([^)]+\))/ and do
-			{
-				$max = $1;
-				$max =~ s/PORT_MASQ_BEGIN/\$min/;
-				$max = eval $max;
-				last;
-			};
-		}
-
-		close(MASQ);
-	}
-
-	$min = 61000 unless defined $min and $min =~ /^\d+$/;
-	$max = 65096 unless defined $max and $max =~ /^\d+$/;
-
-	print "$min:$max\n";
-
-'`
+[ -z "$masq_ports" ] && masq_ports="61000:65096"
 
 ##############################################################################
 # Define some default port numbers. You can override these in the policy file.
@@ -286,59 +289,74 @@ MASQ_UDP_TIMEOUT="0"
 
 if [ -z "$TRUSTED_INTERFACES" ]
 then
-	echo "$0: \$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")" >&2
+	log -s "\$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")"
 	exit 1
 fi
 
-trusted_interfaces="$TRUSTED_INTERFACES"
+# If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
-# If $INTERNAL_NETWORKS isn't defined, derive it from $trusted_interfaces
+[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | awk '
 
-[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | perl -e '
+	# Print the addresses and network masks of the internal interfaces (not lo)
 
-	my %network = ();
-	my $iface = undef;
+	BEGIN {
 
-	while (<STDIN>)
+		# Receive input one interface at a time, not one line at a time
+		RS="";
+
+		# Build a dictionary of internal interfaces to look for (exclude lo)
+		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+		for (i in ifaces)
+			if (ifaces[i] != "lo")
+				internal[ifaces[i]] = 1;
+	}
+
 	{
-		if (defined $iface && $_ =~ /inet addr:(\d+\.\d+\.\d+\.\d+)\s+.*\s+Mask:(\d+\.\d+\.\d+\.\d+)/)
-		{
-			my $network = $1 . "/" . $2;
-			$network{$iface} = (exists $network{$iface}) ? ($network{$iface} . " " . $network) : $network;
-			$iface = undef;
+		# All records but the first have $1 == "\0" for some reason
+		iface = ($1 != "\0") ? $1 : $2;
+
+		# Identify the real device for aliases
+		if ((colon = index(iface, ":")) != 0)
+			iface = substr(iface, 0, colon - 1);
+
+		# Skip interfaces that we are not interested in
+		if (internal[iface] == "")
 			next;
-		}
 
-		my ($if) = $_ =~ /^(\S+)\s/;
-		next unless defined $if;
-		my ($device, $alias) = $if =~ /^([^:]+):(\d+)$/;
-		$iface = (defined $device && defined $alias) ? $device : $if;
+		# Print the network pattern of this interface for ipchains
+		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+			next;
+
+		addr = substr($0, RSTART + 10, RLENGTH - 10);
+
+		if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+			next;
+
+		mask = substr($0, RSTART + 5, RLENGTH - 5);
+
+		print addr "/" mask;
 	}
 
-	for (@ARGV)
-	{
-		next if $_ eq "lo";
-		next unless exists $network{$_};
-		print $network{$_}, " ";
-	}
-
-' $trusted_interfaces`"
+' list="$TRUSTED_INTERFACES"`"
 
 # Check that $UNTRUSTED_INTERFACES is defined
 
 if [ -z "$UNTRUSTED_INTERFACES" ]
 then
-	echo "$0: \$UNTRUSTED_INTERFACES must be defined in $policy (e.g. UNTRUSTED_INTERFACES=\"ppp0\")" >&2
+	log -s "\$UNTRUSTED_INTERFACES must be defined in $policy (e.g. UNTRUSTED_INTERFACES=\"ppp0\")"
 	exit 1
 fi
 
-untrusted_interfaces="$UNTRUSTED_INTERFACES"
-
 # Check that there aren't too many interfaces listed in $UNTRUSTED_INTERFACES
 
-if [ "`perl -e 'print $#ARGV' $untrusted_interfaces`" -gt 9 ]
+too_many()
+{
+	[ $# -gt 10 ]
+}
+
+if too_many $UNTRUSTED_INTERFACES
 then
-	echo "$0: Too many untrusted interfaces (only supports 10)" >&2
+	log -s "Too many untrusted interfaces (only supports 10)"
 	exit 1
 fi
 
@@ -348,44 +366,67 @@ fi
 # If any interfaces have aliases, we treat their addresses as being
 # equal for that interface.
 
-untrusted_addresses="`ifconfig | perl -e '
+[ -z "$UNTRUSTED_ADDRESSES" ] && UNTRUSTED_ADDRESSES="`ifconfig | awk '
 
-	my %iface = ();
-	my $iface = undef;
+	# Print the addresses of the untrusted interfaces in order of the
+	# appearance of their interface (multiple addresses/aliases are comma
+	# separated, interfaces that are down result in a 0/0 address)
 
-	while (<STDIN>)
+	BEGIN {
+		# Receive input one interface at a time, not one line at a time
+		RS="";
+
+		# Build a dictionary of untrusted interfaces to look for
+		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+		for (i in ifaces)
+			untrusted[ifaces[i]] = 1;
+	}
+
 	{
-		if (defined $iface && $_ =~ /inet addr:(\d+\.\d+\.\d+\.\d+)\s/)
+		# All records but the first have $1 == "\0" for some reason
+		iface = ($1 != "\0") ? $1 : $2;
+
+		# Identify the real device for aliases
+		if ((colon = index(iface, ":")) != 0)
+			iface = substr(iface, 0, colon - 1);
+
+		# Skip interfaces that we are not interested in
+		if (untrusted[iface] == "")
 		{
-			$iface{$iface} = (exists $iface{$iface}) ? ($iface{$iface} . "," . $1) : $1;
-			$iface = undef;
+			delete untrusted[iface]; # negate auto-vivification
 			next;
 		}
 
-		my ($if) = $_ =~ /^(\S+)\s/;
-		next unless defined $if;
-		my ($device, $alias) = $if =~ /^(\w+):(\d+)$/;
-		$iface = (defined $device && defined $alias) ? $device : $if;
+		# Store the address in a dictionary (comma separated when aliased)
+		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+			next;
+
+		addr = substr($0, RSTART + 10, RLENGTH - 10);
+		addresses[iface] = (addresses[iface] == "") ? addr : addresses[iface] "," addr;
 	}
 
-	for (@ARGV)
-	{
-		print(((exists $iface{$_}) ? $iface{$_} : "'$any'") , " ");
+	END {
+		# Print addresses in order of the appearance of its interface
+		for (i in ifaces)
+		{
+			iface = ifaces[i];
+			print (addresses[iface] != "") ? addresses[iface] : "'$any'";
+		}
 	}
 
-' $untrusted_interfaces`"
+' list="$UNTRUSTED_INTERFACES"`"
 
 # Check the network topology variables
 
 # Static NAT requires iproute2
 case "$STATIC_NAT" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
-		echo "$0: STATIC_NAT is not yet implemented" >&2
+		log -s "STATIC_NAT is not yet implemented"
 		exit 1
 		# Check that ip is available
 		if [ ! -x /sbin/ip ]
 		then
-			echo "$0: failed to find executable /sbin/ip (required for static NAT)" >&2
+			log -s "failed to find executable /sbin/ip (required for static NAT)"
 			exit 1
 		fi
 		;;
@@ -394,12 +435,12 @@ esac
 # Alias masquerading requires iproute2 and implies port forwarding
 case "$ALIAS_MASQUERADING" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
-		echo "$0: ALIAS_MASQUERADING is not yet implemented" >&2
+		log -s "ALIAS_MASQUERADING is not yet implemented"
 		exit 1
 		# Check that ip is available
 		if [ ! -x /sbin/ip ]
 		then
-			echo "$0: failed to find executable /sbin/ip (required for alias masquerading)" >&2
+			log -s "failed to find executable /sbin/ip (required for alias masquerading)"
 			exit 1
 		fi
 		# Implies PORT_FORWARDING
@@ -413,7 +454,7 @@ case "$PORT_FORWARDING" in
 		# Check that ipmasqadm is available
 		if [ ! -x /usr/sbin/ipmasqadm ]
 		then
-			echo "$0: failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)" >&2
+			log -s "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
 			exit 1
 		fi
 		# Implies MASQUERADING
@@ -429,20 +470,20 @@ case "$FORWARDING" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		if [ -z "$INTERNAL_NETWORKS" ]
 		then
-			echo "$0: \$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")" >&2
+			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
 			exit 1
 		fi
 
 		case "$MASQUERADING" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$FORWARDING and \$MASQUERADING are mutually exclusive" >&2
+				log -s "\$FORWARDING and \$MASQUERADING are mutually exclusive"
 				exit 1
 				;;
 		esac
 
 		case "$STATIC_NAT" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$FORWARDING and \$STATIC_NAT are mutually exclusive" >&2
+				log -s "\$FORWARDING and \$STATIC_NAT are mutually exclusive"
 				exit 1
 				;;
 		esac
@@ -453,20 +494,20 @@ case "$MASQUERADING" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		if [ -z "$INTERNAL_NETWORKS" ]
 		then
-			echo "$0: \$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")" >&2
+			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
 			exit 1
 		fi
 
 		case "$FORWARDING" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$MASQUERADING and \$FORWARDING are mutually exclusive" >&2
+				log -s "\$MASQUERADING and \$FORWARDING are mutually exclusive"
 				exit 1
 				;;
 		esac
 
 		case "$STATIC_NAT" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$MASQUERADING and \$STATIC_NAT are mutually exclusive" >&2
+				log -s "\$MASQUERADING and \$STATIC_NAT are mutually exclusive"
 				exit 1
 				;;
 		esac
@@ -477,20 +518,20 @@ case "$STATIC_NAT" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		if [ -z "$INTERNAL_NETWORKS" ]
 		then
-			echo "$0: \$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")" >&2
+			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
 			exit 1
 		fi
 
 		case "$MASQUERADING" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$STATIC_NAT and \$MASQUERADING are mutually exclusive" >&2
+				log -s "\$STATIC_NAT and \$MASQUERADING are mutually exclusive"
 				exit 1
 				;;
 		esac
 
 		case "$FORWARDING" in
 			[Yy]es|[Tt]rues|[Oo]n|1)
-				echo "$0: \$STATIC_NAT and \$FORWARDING are mutually exclusive" >&2
+				log -s "\$STATIC_NAT and \$FORWARDING are mutually exclusive"
 				exit 1
 				;;
 		esac
@@ -502,7 +543,7 @@ esac
 [ -z "$OCDNS_SERVERS" ] && OCDNS_SERVERS="`awk '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
 if [ -z "$OCDNS_SERVERS$OSDNS_SERVERS" ]
 then
-	echo "$0: Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy" >&2
+	log -s "Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy"
 	exit 1
 fi
 
@@ -3131,18 +3172,18 @@ mand_nolog()
 # and flush all chains.
 #
 
-echo -n "Starting IP Packet Filter"
+do_start_filter()
+{
+	# Set policies for the built-in chains
 
-# Set policies for the built-in chains
+	ipchains -P input $BLOCKIN
+	ipchains -P output $BLOCKOUT
+	ipchains -P forward $BLOCKFWD
 
-ipchains -P input $BLOCKIN
-ipchains -P output $BLOCKOUT
-ipchains -P forward $BLOCKFWD
+	# Remove all existing rules/chains
 
-# Remove all existing rules/chains
-
-ipchains -F
-ipchains -X
+	ipchains -F
+	ipchains -X
 
 ##############################################################################
 # IP Spoofing
@@ -3169,61 +3210,64 @@ ipchains -X
 # routing tables to get return packets back(?)).
 #
 
-chains spoof # incoming and outgoing rule chains for spoofed packets
+	chains spoof # incoming and outgoing rule chains for spoofed packets
 
-# Catch incoming packets that claim to be from an internal network
-for internal_network in $INTERNAL_NETWORKS
-do
-	ipchains -A ispoof -s $internal_network -j $BLOCKIN $LOG
-done
+	# Catch incoming packets that claim to be from an internal network
+	for internal_network in $INTERNAL_NETWORKS
+	do
+		ipchains -A ispoof -s $internal_network -j $BLOCKIN $LOG
+	done
 
-# Catch packets claiming to be to or from illegal networks
-for illegal_netork in $ILLEGAL_NETWORKS
-do
-	ipchains -A ispoof -s $illegal_netork -j $BLOCKIN $LOG
-	ipchains -A ispoof -d $illegal_netork -j $BLOCKIN $LOG
-	ipchains -A ospoof -s $illegal_netork -j $BLOCKOUT $LOG
-	ipchains -A ospoof -d $illegal_netork -j $BLOCKOUT $LOG
-done
+	# Catch packets claiming to be to or from illegal networks
+	for illegal_netork in $ILLEGAL_NETWORKS
+	do
+		ipchains -A ispoof -s $illegal_netork -j $BLOCKIN $LOG
+		ipchains -A ispoof -d $illegal_netork -j $BLOCKIN $LOG
+		ipchains -A ospoof -s $illegal_netork -j $BLOCKOUT $LOG
+		ipchains -A ospoof -d $illegal_netork -j $BLOCKOUT $LOG
+	done
 
-# Catch incoming packets with the wrong type of broadcast address
-ipchains -A ispoof -s $broadcast_dst -j $BLOCKIN $LOG
-ipchains -A ispoof -d $broadcast_src -j $BLOCKIN $LOG
+	# Catch incoming packets with the wrong type of broadcast address
+	ipchains -A ispoof -s $broadcast_dst -j $BLOCKIN $LOG
+	ipchains -A ispoof -d $broadcast_src -j $BLOCKIN $LOG
 
-# Catch packets with a multicast source address
-ipchains -A ispoof -s $multicast -j $BLOCKIN $LOG
-ipchains -A ospoof -s $multicast -j $BLOCKOUT $LOG
+	# Catch packets with a multicast source address
+	ipchains -A ispoof -s $multicast -j $BLOCKIN $LOG
+	ipchains -A ospoof -s $multicast -j $BLOCKOUT $LOG
 
-# Catch packets with a reserved source address
-ipchains -A ispoof -s $reserved  -j $BLOCKIN $LOG
+	# Catch packets with a reserved source address
+	ipchains -A ispoof -s $reserved  -j $BLOCKIN $LOG
 
-# Catch incoming packets with IANA reserved source addresses
-for reserved_network in $RESERVED_NETWORKS
-do
-	ipchains -A ispoof -s $reserved_network -j $BLOCKIN $LOG
-done
+	# Catch incoming packets with IANA reserved source addresses
+	for reserved_network in $RESERVED_NETWORKS
+	do
+		ipchains -A ispoof -s $reserved_network -j $BLOCKIN $LOG
+	done
 
 ##############################################################################
 # Packet Fragments
 #
 # Note: Fragments are denied/rejected iff $IPV4_FRAGMENT_PROTECT != "no".
 #
-
-chains frag # incoming and outgoing rule chains for fragments
-
 # Note: The kernel must "always defrag" so as to avoid attacks where packets
 # that would not pass through the filter aren't assembled until after filtering
 # so we should deny any fragments that make it this far. There shouldn't be
 # any.
+#
+# Note: Recent kernels aren't vulnerable to this sort of attack so if you need
+# to allow fragments for performance reasons, do so with a recent kernel.
 
-case "$IPV4_FRAGMENT_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		ipchains -A ifrag -f -j $BLOCKIN $LOG
-		ipchains -A ofrag -f -j $BLOCKOUT $LOG
-		;;
-esac
+
+	chains frag # incoming and outgoing rule chains for fragments
+
+	case "$IPV4_FRAGMENT_PROTECT" in
+		[Nn]o|[Ff]alse|[Oo]ff|0)
+			;;
+		*)
+			ipchains -A ifrag -f -j $BLOCKIN $LOG
+			ipchains -A ofrag -f -j $BLOCKOUT $LOG
+			;;
+	esac
 
 ##############################################################################
 # Construct the chains for the untrusted interfaces. All untrusted interfaces
@@ -3238,78 +3282,78 @@ esac
 # current interface.
 #
 
-i=-1
-for untrusted in $untrusted_interfaces
-do
-	# Each untrusted interface has a number from 0 to 9.
-	i=`expr $i + 1`
-
-	# There may be aliases and hence multiple ip addresses.
-	TARGET_self="`index untrusted_addresses $i | sed 's/,/ /g'`"
-
-	# Create incoming and outgoing chains for the untrusted network interface
-	# Note: May not work for things like ppp+
-	chains $untrusted
-
-	# Disallow spoofing
-	mand_spoof "$TARGET_self" "$i"
-	ipchains -A i$untrusted -j ispoof$i
-	# Only perform full spoof protection on external untrusted interfaces
-	if notin $untrusted $INTERNAL_UNTRUSTED_INTERFACES
-	then
-		ipchains -A i$untrusted -j ispoof
-		ipchains -A o$untrusted -j ospoof
-	fi
-
-	# Disallow all packets between this network and untrusted networks
-	# Note: This is not particularly useful. If it's really hostile,
-	# they can spoof some other network's addresses anyway. In fact,
-	# they may have been doing so all along.
-	for untrusted_network in $UNTRUSTED_NETWORKS
+	i=-1
+	for untrusted in $UNTRUSTED_INTERFACES
 	do
-		ipchains -A i$untrusted -s $untrusted_network -j $BLOCKIN $LOG
-		ipchains -A o$untrusted -d $untrusted_network -j $BLOCKOUT $LOG
-	done
+		# Each untrusted interface has a number from 0 to 9.
+		i=`expr $i + 1`
 
-	# Add the input/output rule chains to deny dangerous services
-	mand_danger "$any" "$i"
-	ipchains -A i$untrusted -j idanger$i
-	ipchains -A o$untrusted -j odanger$i
+		# There may be aliases and hence multiple ip addresses.
+		TARGET_self="`index UNTRUSTED_ADDRESSES $i | sed 's/,/ /g'`"
 
-	# Add the input/output rule chains to allow requested services
-	for service in `combine SERVICES $i`
-	do
-		# Extract the service name and target (no target implies self)
-		service_name=${service%.*}
-		service_target=${service#*.}
-		[ "$service_name" = "$service_target" ] && service_target="self"
-		eval target=\"\$TARGET_$service_target\"
+		# Create incoming and outgoing chains for the untrusted network interface
+		# Note: May not work for things like ppp+
+		chains $untrusted
 
-		if [ -z "$target" ]
+		# Disallow spoofing
+		mand_spoof "$TARGET_self" "$i"
+		ipchains -A i$untrusted -j ispoof$i
+		# Only perform full spoof protection on external untrusted interfaces
+		if notin $untrusted $INTERNAL_UNTRUSTED_INTERFACES
 		then
-			echo "$0: Failed to find target for $service_name: \$TARGET_$service_target" >&2
-			continue;
+			ipchains -A i$untrusted -j ispoof
+			ipchains -A o$untrusted -j ospoof
 		fi
 
-		if typeset -f $service_name >/dev/null
-		then
-			$service_name "$target" "$i"
-			ipchains -A i$untrusted -j i$service_name$i
-			ipchains -A o$untrusted -j o$service_name$i
-		else
-			echo "$0: $service_name is not a recognised service name" >&2
-		fi
-	done
+		# Disallow all packets between this network and untrusted networks
+		# Note: This is not particularly useful. If it's really hostile,
+		# they can spoof some other network's addresses anyway. In fact,
+		# they may have been doing so all along.
+		for untrusted_network in $UNTRUSTED_NETWORKS
+		do
+			ipchains -A i$untrusted -s $untrusted_network -j $BLOCKIN $LOG
+			ipchains -A o$untrusted -d $untrusted_network -j $BLOCKOUT $LOG
+		done
 
-	mand_user "$any" "$i"
-	mand_icmp "$any" "$i"
-	mand_nolog "$any" "$i"
-	for service in iuser$i ouser$i icmp$i frag nolog$i
-	do
-		ipchains -A i$untrusted -j i$service
-		ipchains -A o$untrusted -j o$service
+		# Add the input/output rule chains to deny dangerous services
+		mand_danger "$any" "$i"
+		ipchains -A i$untrusted -j idanger$i
+		ipchains -A o$untrusted -j odanger$i
+
+		# Add the input/output rule chains to allow requested services
+		for service in `combine SERVICES $i`
+		do
+			# Extract the service name and target (no target implies self)
+			service_name=${service%.*}
+			service_target=${service#*.}
+			[ "$service_name" = "$service_target" ] && service_target="self"
+			eval target=\"\$TARGET_$service_target\"
+
+			if [ -z "$target" ]
+			then
+				echo "$0: Failed to find target for $service_name: \$TARGET_$service_target" >&2
+				continue;
+			fi
+
+			if typeset -f $service_name >/dev/null
+			then
+				$service_name "$target" "$i"
+				ipchains -A i$untrusted -j i$service_name$i
+				ipchains -A o$untrusted -j o$service_name$i
+			else
+				echo "$0: $service_name is not a recognised service name" >&2
+			fi
+		done
+
+		mand_user "$any" "$i"
+		mand_icmp "$any" "$i"
+		mand_nolog "$any" "$i"
+		for service in iuser$i ouser$i icmp$i frag nolog$i
+		do
+			ipchains -A i$untrusted -j i$service
+			ipchains -A o$untrusted -j o$service
+		done
 	done
-done
 
 ##############################################################################
 # Finally, start filtering packets. Set up the built-in chains. Packets on
@@ -3318,115 +3362,116 @@ done
 # rule are logged if requested. Masquerading begins here as well if requested.
 #
 
-# Accept all packets on trusted interfaces
+	# Accept all packets on trusted interfaces
 
-for trusted in $trusted_interfaces
-do
-	ipchains -A input  -i $trusted -j ACCEPT
-	ipchains -A output -i $trusted -j ACCEPT
-done
+	for trusted in $TRUSTED_INTERFACES
+	do
+		ipchains -A input  -i $trusted -j ACCEPT
+		ipchains -A output -i $trusted -j ACCEPT
+	done
 
-# Direct packets through each untrusted interface's direction-based chains
+	# Direct packets through each untrusted interface's direction-based chains
 
-for untrusted in $untrusted_interfaces
-do
-	ipchains -A input  -i $untrusted -j i$untrusted
-	ipchains -A output -i $untrusted -j o$untrusted
-done
+	for untrusted in $UNTRUSTED_INTERFACES
+	do
+		ipchains -A input  -i $untrusted -j i$untrusted
+		ipchains -A output -i $untrusted -j o$untrusted
+	done
 
-# If masquerading, masquerade packets between the internal networks and
-# everywhere else but not amongst the internal networks themselves.
-#
-# Note: while ipchains probably can masquerade packets across multiple external
-# interfaces, it seems very strange so fwup will only create rules to allow
-# masquerading across the first untrusted interface.
+	# If masquerading, masquerade packets between the internal networks and
+	# everywhere else but not amongst the internal networks themselves.
+	#
+	# Note: while ipchains probably can masquerade packets across multiple external
+	# interfaces, it seems very strange so fwup will only create rules to allow
+	# masquerading across the first untrusted interface.
 
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
+	case "$MASQUERADING" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
 
-		# Set masquerading timeouts
+			# Set masquerading timeouts
 
-		if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
-		then
-			ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
-		fi
+			if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
+			then
+				ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
+			fi
 
-		# Accept (unmasqueraded) traffic amongst multiple internal networks
+			# Accept (unmasqueraded) traffic amongst multiple internal networks
 
-		for src in $INTERNAL_NETWORKS
-		do
-			for dst in $INTERNAL_NETWORKS
+			for src in $INTERNAL_NETWORKS
 			do
-				if [ "$src" != "$dst" ]
-				then
-					ipchains -A forward -s $src -d $dst -j ACCEPT
-				fi
-			done
-		done
-
-		# Masquerade traffic from internal networks to the outside world
-
-		for masqnet in $INTERNAL_NETWORKS
-		do
-			ipchains -A forward -s $masqnet -j MASQ
-		done
-
-		# Setup port forwarding XXX not when disconnected: pukes on -L 0/0
-
-		case "$PORT_FORWARDING" in
-			[Yy]es|[Tt]rue|[Oo]n|1)
-				ipmasqadm portfw -f
-				if [ -n "$PORTFW" ]
-				then
-					# There may only be one address on this interface
-					dstaddr="`index untrusted_addresses 0`"
-					if [ "${dstaddr#,}" != "$dstaddr" ]
+				for dst in $INTERNAL_NETWORKS
+				do
+					if [ "$src" != "$dst" ]
 					then
-						echo "$0: Too many addresses - use alias masquerading" >&2
-					elif [ "$dstaddr" = "$any" ]
-					then
-						echo " (not connected - leaving portfw until later)" >&2
-					else
-						set $PORTFW
-						while [ $# != 0 ]
-						do
-							proto=$1; dstport=$2; toaddr=$3; toport=$4
-							shift; shift; shift; shift
-
-							if [ -z "$proto" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" ]
-							then
-								echo "$0: Invalid port forwarding instructions: \"$proto\" \"$dstport\" \"$toaddr\" \"$toport\" (protocol dstport toaddr toport)" >&2
-								break
-							fi
-
-							ipmasqadm portfw -a -P $proto -L $dstaddr $dstport -R $toaddr $toport
-						done
+						ipchains -A forward -s $src -d $dst -j ACCEPT
 					fi
-				fi
-				;;
-		esac
-		;;
-esac
+				done
+			done
 
-# If forwarding, accept all forwarded packets. All checks are on the input and
-# output chains.
+			# Masquerade traffic from internal networks to the outside world
 
-case "$FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		ipchains -A forward -j ACCEPT
-		;;
-esac
+			for masqnet in $INTERNAL_NETWORKS
+			do
+				ipchains -A forward -s $masqnet -j MASQ
+			done
 
-# Log all packets that reach the end of their chain
+			# Setup port forwarding (unless disconnected - pukes on -L 0/0)
 
-if [ ! -z "$LOG" ]
-then
-	ipchains -A input $LOG
-	ipchains -A output $LOG
-	ipchains -A forward $LOG
-fi
+			case "$PORT_FORWARDING" in
+				[Yy]es|[Tt]rue|[Oo]n|1)
+					ipmasqadm portfw -f
+					if [ -n "$PORTFW" ]
+					then
+						# There may only be one address on this interface
+						dstaddr="`index UNTRUSTED_ADDRESSES 0`"
+						if [ "${dstaddr#,}" != "$dstaddr" ]
+						then
+							echo "$0: Too many addresses - use alias masquerading" >&2
+						elif [ "$dstaddr" = "$any" ]
+						then
+							echo " (not connected - leaving portfw until later)" >&2
+						else
+							set $PORTFW
+							while [ $# != 0 ]
+							do
+								proto=$1; dstport=$2; toaddr=$3; toport=$4
+								shift; shift; shift; shift
 
-action "" true
+								if [ -z "$proto" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" ]
+								then
+									echo "$0: Invalid port forwarding instructions: \"$proto\" \"$dstport\" \"$toaddr\" \"$toport\" (protocol dstport toaddr toport)" >&2
+									break
+								fi
+
+								ipmasqadm portfw -a -P $proto -L $dstaddr $dstport -R $toaddr $toport
+							done
+						fi
+					fi
+					;;
+			esac
+			;;
+	esac
+
+	# If forwarding, accept all forwarded packets. All checks are on the input and
+	# output chains.
+
+	case "$FORWARDING" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
+			ipchains -A forward -j ACCEPT
+			;;
+	esac
+
+	# Log all packets that reach the end of their chain
+
+	if [ ! -z "$LOG" ]
+	then
+		ipchains -A input $LOG
+		ipchains -A output $LOG
+		ipchains -A forward $LOG
+	fi
+}
+
+action "Starting IP Packet Filter" do_start_filter
 
 ##############################################################################
 # Load IP Masquerading Modules
@@ -3436,26 +3481,24 @@ case "$MASQUERADING" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
 		then
-			echo -n "Loading IP Masquerading Modules"
-			required="0"
-			loaded="0"
+			do_load_modules()
+			{
+				local required="0" loaded="0" module
 
-			for module in $MASQ_MODULES
-			do
-				if grep ip_masq_$module /proc/modules >/dev/null
-				then
-					continue
-				fi
-				required="`expr $required + 1`"
-				eval modprobe ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
-			done
+				for module in $MASQ_MODULES
+				do
+					if grep ip_masq_$module /proc/modules >/dev/null
+					then
+						continue
+					fi
+					required="`expr $required + 1`"
+					eval modprobe ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
+				done
 
-			if [ "$loaded" != "$required" ]
-			then
-				action ": $loaded/$required modules loaded" /bin/false
-			else
-				action "" /bin/true
-			fi
+				[ "$loaded" = "$required" ]
+			}
+
+			action "Loading IP Masquerading Modules" do_load_modules
 		fi
 		;;
 esac
@@ -3468,17 +3511,18 @@ case "$IPV4_SPOOF_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP Source Address Verification"
-		if [ -w $ipv4/conf/all/rp_filter ]
-		then
-			for procfile in $ipv4/conf/*/rp_filter
-			do
-				echo 1 > $procfile
-			done
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_spoof()
+		{
+			if [ -w $ipv4/conf/all/rp_filter ]
+			then
+				for procfile in $ipv4/conf/*/rp_filter
+				do
+					echo 1 > $procfile
+				done
+			fi
+		}
+
+		action "Starting IP Source Address Verification" do_start_spoof
 		;;
 esac
 
@@ -3490,17 +3534,18 @@ case "$IPV4_SOURCE_ROUTE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP Source Routing Protection"
-		if [ -w $ipv4/conf/all/accept_source_route ]
-		then
-			for procfile in $ipv4/conf/*/accept_source_route
-			do
-				echo 0 > $procfile
-			done
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_sourceroute()
+		{
+			if [ -w $ipv4/conf/all/accept_source_route ]
+			then
+				for procfile in $ipv4/conf/*/accept_source_route
+				do
+					echo 0 > $procfile
+				done
+			fi
+		}
+
+		action "Starting IP Source Routing Protection" do_start_sourceroute
 		;;
 esac
 
@@ -3512,17 +3557,18 @@ case "$IPV4_ICMP_REDIRECT_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP ICMP Redirect Protection"
-		if [ -w $ipv4/conf/all/accept_redirects ]
-		then
-			for procfile in $ipv4/conf/*/accept_redirects
-			do
-				echo 0 > $procfile
-			done
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_redirect()
+		{
+			if [ -w $ipv4/conf/all/accept_redirects ]
+			then
+				for procfile in $ipv4/conf/*/accept_redirects
+				do
+					echo 0 > $procfile
+				done
+			fi
+		}
+
+		action "Starting IP ICMP Redirect Protection" do_start_redirect
 		;;
 esac
 
@@ -3534,14 +3580,12 @@ case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP TCP SYN Cookie Protection"
-		if [ -w $ipv4/tcp_syncookies ]
-		then
-			echo 1 > $ipv4/tcp_syncookies
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_syncookie()
+		{
+			[ -w $ipv4/tcp_syncookies ] && echo 1 > $ipv4/tcp_syncookies
+		}
+
+		action "Starting IP TCP SYN Cookie Protection" do_start_syncookie
 		;;
 esac
 
@@ -3553,14 +3597,12 @@ case "$IPV4_FRAGMENT_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP Fragment Protection"
-		if [ -w $ipv4/ip_always_defrag ]
-		then
-			echo 1 > $ipv4/ip_always_defrag
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_fragment()
+		{
+			[ -w $ipv4/ip_always_defrag ] && echo 1 > $ipv4/ip_always_defrag
+		}
+
+		action "Starting IP Fragment Protection" do_start_fragment
 		;;
 esac
 
@@ -3572,14 +3614,12 @@ case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP ICMP Broadcast Echo Protection"
-		if [ -w $ipv4/icmp_echo_ignore_broadcasts ]
-		then
-			echo 1 > $ipv4/icmp_echo_ignore_broadcasts
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_icmp()
+		{
+			[ -w $ipv4/icmp_echo_ignore_broadcasts ] && echo 1 > $ipv4/icmp_echo_ignore_broadcasts
+		}
+
+		action "Starting IP ICMP Broadcast Echo Protection" do_start_icmp
 		;;
 esac
 
@@ -3591,14 +3631,12 @@ case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP Bogus Error Response Protection"
-		if [ -w $ipv4/icmp_ignore_bogus_error_responses ]
-		then
-			echo 1 > $ipv4/icmp_ignore_bogus_error_responses
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_bogus()
+		{
+			[ -w $ipv4/icmp_ignore_bogus_error_responses ] && echo 1 > $ipv4/icmp_ignore_bogus_error_responses
+		}
+
+		action "Starting IP Bogus Error Response Protection" do_start_bogus
 		;;
 esac
 
@@ -3610,17 +3648,18 @@ case "$IPV4_LOG_MARTIANS" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
 		;;
 	*)
-		echo -n "Starting IP Martian Logging"
-		if [ -w $ipv4/conf/all/log_martians ]
-		then
-			for procfile in $ipv4/conf/*/log_martians
-			do
-				echo 0 > $procfile
-			done
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_martian()
+		{
+			if [ -w $ipv4/conf/all/log_martians ]
+			then
+				for procfile in $ipv4/conf/*/log_martians
+				do
+					echo 0 > $procfile
+				done
+			fi
+		}
+
+		action "Starting IP Martian Logging" do_start_martian
 		;;
 esac
 
@@ -3630,14 +3669,12 @@ esac
 
 case "$IPV4_DYNADDR" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
-		echo -n "Starting Dynamic IP Address Hacking in IP MASQ"
-		if [ -w $ipv4/ip_dynaddr ]
-		then
-			echo 1 > $ipv4/ip_dynaddr
-			action "" true
-		else
-			action "" false
-		fi
+		do_start_dynaddr()
+		{
+			[ -w $ipv4/ip_dynaddr ] && echo 1 > $ipv4/ip_dynaddr
+		}
+
+		action "Starting Dynamic IP Address Hacking in IP MASQ" do_start_dynaddr
 		;;
 esac
 
@@ -3667,14 +3704,12 @@ esac
 
 if [ "$start_forwarding" = "1" ]
 then
-	echo -n "Starting IP Packet Forwarding"
-	if [ -w $ipv4/ip_forward ]
-	then
-		echo 1 > $ipv4/ip_forward
-		action "" true
-	else
-		action "" false
-	fi
+	do_start_forwarding()
+	{
+		[ -w $ipv4/ip_forward ] && echo 1 > $ipv4/ip_forward
+	}
+
+	action "Starting IP Packet Forwarding" do_start_forwarding
 fi
 
 exit 0
