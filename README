@@ -171,8 +171,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20010801.tar.gz
-    cd firewall-20010801
+    tar xzf firewall-20010815.tar.gz
+    cd firewall-20010815
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -217,8 +217,8 @@ on this host).
 
 Unpack the distribution:
 
-    tar xzf firewall-20010801.tar.gz
-    cd firewall-20010801
+    tar xzf firewall-20010815.tar.gz
+    cd firewall-20010815
 
 Install:
 
@@ -490,6 +490,11 @@ HISTORY
     - Fixed X11 client rules (dj@head-cfa.harvard.edu)
     - Added X11 server rules
 
+20010815
+
+    - Fixed bug: redirect code never executed (ckhui@school.net.hk)
+    - Updated IANA reserved networks (20010619 - 67, 68, 80 and 81 allocated)
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -595,5 +600,5 @@ More testing
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20010801
+Date: 20010815
 Author: raf <raf@raf.org>

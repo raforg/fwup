@@ -22,7 +22,7 @@
 
 # make-ls - List the firewall installation (without make)
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 echo "Installed files:"
 ls -l /etc/rc.d/init.d/firewall /etc/init.d/firewall /etc/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall /etc/rc?.d/[SK][0-9][0-9]firewall 2>/dev/null

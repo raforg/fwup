@@ -22,7 +22,7 @@
 
 # make-uninstall - Uninstall the firewall scripts and policy (without make)
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 . ./firewall.policy
 unmodify() { if [ -x $1 ]; then grep -v '/firewall reload' $1 > /tmp/fwun.$$; cat /tmp/fwun.$$ > $1; rm -f /tmp/fwun.$$; fi; }

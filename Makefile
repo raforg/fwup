@@ -21,7 +21,7 @@
 
 # Makefile - fwup
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \

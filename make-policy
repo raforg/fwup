@@ -22,6 +22,6 @@
 
 # make-policy - Install the firewall policy (without make)
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 install -m 600 ./firewall.policy /etc

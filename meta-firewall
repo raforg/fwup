@@ -22,7 +22,7 @@
 
 # meta-firewall - control script for managing multiple remote firewalls
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 PATH=/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin export PATH
 

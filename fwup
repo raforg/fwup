@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20010801 raf <raf@raf.org>
+# 20010815 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -218,12 +218,12 @@ multicast="224.0.0.0/4"
 ILLEGAL_NETWORKS="$loopback $private_a $private_b $private_c"
 
 # IANA Reserved addresses
-# http://www.isi.edu/in-notes/iana/assignments/ipv4-address-space
+# http://www.iana.org/assignments/ipv4-address-space [2001 June 19]
 
-RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 67.0.0.0/8 68.0.0.0/6 72.0.0.0/6 76.0.0.0/6 80.0.0.0/4 96.0.0.0/4 112.0.0.0/4 197.0.0.0/8 219.0.0.0/8 220.0.0.0/6 240.0.0.0/4"
+RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/5 82.0.0.0/7 84.0.0.0/6 88.0.0.0/5 96.0.0.0/3 197.0.0.0/8 219.0.0.0/8 220.0.0.0/6 240.0.0.0/4"
 # I'm not absolutely certain that the following are IANA Reserved networks.
 # It looks like they are but they're not explicitly labelled "IANA - Reserved".
-RESERVED_NETWORKS="$RESERVED_NETWORKS 49.0.0.0/8 50.0.0.0/8 201.0.0.0/8"
+# RESERVED_NETWORKS="$RESERVED_NETWORKS 49.0.0.0/8 50.0.0.0/8 201.0.0.0/8"
 
 ##############################################################################
 # Determine some system specific port numbers
@@ -3768,7 +3768,7 @@ init_portfw()
 	then
 		set $PORTRANGEFW
 
-		# Create the fwmark chain if it wasn't created earlier
+		# Create and insert the fwmark chain if it wasn't created earlier
 		if [ $# != 0 -a -z "$chain_fwmark" ]
 		then
 			chain fwmark
@@ -4094,13 +4094,15 @@ do_start_filter()
 # Redirection
 #
 
-	for redirect_iface in $REDIRECT_INTERFACES
-	do
-		# Create the redirect chain if it wasn't created earlier
-		[ -z "$chain_fwmark" ] && chain redirect
+	if yes "$REDIRECTING"
+	then
+		chain redirect
 
-		ipchains -A input -i $redirect_iface -j redirect
-	done
+		for redirect_iface in $REDIRECT_INTERFACES
+		do
+			ipchains -A input -i $redirect_iface -j redirect
+		done
+	fi
 
 ##############################################################################
 # Finally, start filtering packets. Set up the built-in chains. Packets on
@@ -4131,6 +4133,7 @@ do_start_filter()
 	yes "$MASQUERADING" && init_masq
 	yes "$PORT_FORWARDING" && init_portfw
 	yes "$STATIC_NAT" && init_nat
+	yes "$REDIRECTING" && init_redirect
 
 	# Log all packets that reach the end of their chain
 
