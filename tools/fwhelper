@@ -1,4 +1,5 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
+$^W = 1;
 use strict;
 
 # firewall - http://fwup.org/
@@ -26,24 +27,24 @@ I<fwhelper> - helps the testing and development of an I<ipchains> firewall
 
 =head1 SYNOPSIS
 
-    fwhelper [-h] [-d] [-n] [-s] [-i ifname] [-o ipaddr] [<] tcpdump.output
-    where
-        -h        Prints this help
-        -d        Prints debugging info (lots if -s is used as well)
-        -n        Only prints `ipchain -C' commands, doesn't execute them
-        -s        Simulates rules and prints matching rules/policies
-        -i ifname Specifies the network interface name to analyze
-        -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address
+ fwhelper [-h] [-d] [-n] [-s] [-i ifname] [-o ipaddr] [<] tcpdump.output
+ where
+  -h        Prints this help
+  -d        Prints debugging info (lots if -s is used as well)
+  -n        Only prints `ipchain -C' commands, doesn't execute them
+  -s        Simulates rules and prints matching rules/policies
+  -i ifname Specifies the network interface name to analyze
+  -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address
 
 =head1 DESCRIPTION
 
 I<fwhelper> is a tool to help the development and testing of I<ipchains> packet
-filtering rules. It examines a sequence of packets (produced by I<tcpdump>),
+filtering rules. It examines a sequence of packets (produced by I<tcpdump -n>),
 checking each of them against the packet filtering rules (with C<ipchains -C>).
 It can also simulate the packet filter and output the final rule, if any, that
-matched each packet.
+matched each packet (which C<ipchains -C> doesn't do).
 
-While the firewall is stopped, run C<tcpdump -l -i ppp0>, capturing its output
+While the firewall is stopped, run C<tcpdump -n -l -i ppp0>, capturing its output
 to a file, and then run network programs that you wish to allow or disallow.
 Then stop I<tcpdump> and restart the firewall. Run I<fwhelper> with the
 I<tcpdump> output as its input. See that all the packets are accepted, denied
@@ -100,21 +101,10 @@ for the C<ipchains -C> commands.
 
 =head1 BUGS
 
-ICMP type/code parsing is incomplete and probably too dependent on I<tcpdump>
-version.
-
-Doesn't simulate ICMP properly (very bad - needs fixing).
-
 Doesn't parse C<ipchains -v -m -L> output if mark and/or outsize is present.
-
-Can't distinguish between the first and subsequent fragments in I<tcpdump>
-output so it doesn't bother handling fragments (very bad - needs fixing).
 
 Doesn't consider IP masquerading or C<input>->C<forward>->C<output> scenarios.
 But then, neither does C<ipchains -C>.
-
-Simulation of rules with the C<RETURN> target hasn't been tested and may not
-work.
 
 If the firewall was started while connected to the net and you are currently
 disconnected or connected with a new IP address, then the current host's IP
@@ -159,59 +149,67 @@ my %term =
 
 my %icmp_type =
 (
-	qr/echo reply/               => 'echo-reply',
-	qr/unreachable/              => 'destination-unreachable',
-	qr/source quench/            => 'source-quench',
-	qr/redirect.* \S+ to .+ \S+/ => 'redirect',
-	qr/echo request/             => 'echo-request',
-	qr/router advertisement/     => 'router-advertisement',
-	qr/router solicitation/      => 'router-solicitation',
-	qr/time exceeded/            => 'time-exceeded',
-	qr/parameter problem/        => 'parameter-problem',
-	qr/time stamp request/       => 'timestamp-request',
-	qr/time stamp reply/         => 'timestamp-reply',
-	qr/address mask request/     => 'address-mask-request',
-	qr/address mask reply/       => 'address-mask-reply'
+	qr/echo reply/               => 'echo-reply',              # 0
+	qr/unreachable/              => 'destination-unreachable', # 3
+	qr/source quench/            => 'source-quench',           # 4
+	qr/redirect.* \S+ to .+ \S+/ => 'redirect',                # 5
+	qr/echo request/             => 'echo-request',            # 8
+	qr/router advertisement/     => 'router-advertisement',    # 9
+	qr/router solicitation/      => 'router-solicitation',     # 10
+	qr/time exceeded/            => 'time-exceeded',           # 11
+	qr/parameter problem/        => 'parameter-problem',       # 12
+	qr/time stamp request/       => 'timestamp-request',       # 13
+	qr/time stamp reply/         => 'timestamp-reply',         # 14
+	qr/address mask request/     => 'address-mask-request',    # 17
+	qr/address mask reply/       => 'address-mask-reply'       # 18
 );
 
 # Map tcpdump output to ipchains input
 
 my %icmp_code =
 (
-	qr/net \S+ unreachable/                     => 'network-unreachable',
-	qr/host \S+ unreachable/                    => 'host-unreachable',
-	qr/protocol .+ unreachable/                 => 'protocol-unreachable',
-	qr/port .+ unreachable/                     => 'port-unreachable',
-	qr/need to frag/                            => 'fragmentation-needed',
-	qr/source route failed/                     => 'source-route-failed',
-	qr/network unknown/                         => 'network-unknown', # XXX
-	qr/host unknown/                            => 'host-unknown', # XXX
-	qr/net \S+ unreachable - admin prohibited/  => 'network-prohibited',
-	qr/host \S+ unreachable - admin prohibited/ => 'host-prohibited',
-	qr/net \S+ unreachable - tos prohibited/    => 'TOS-network-unreachable',
-	qr/host \S+ unreachable - tos prohibited/   => 'TOS-host-unreachable',
-	qr/- admin prohibited filter/               => 'communication-prohibited',
-	qr/- host precedence violation/             => 'host-precedence-violation',
-	qr/- precedence cutoff/                     => 'precedence-cutoff',
-	qr/redirect \S+ to net \S+/                 => 'network-redirect',
-	qr/redirect \S+ to host \S+/                => 'host-redirect',
-	qr/redirect-tos \S+ to net \S+/             => 'TOS-network-redirect',
-	qr/redirect-tos \S+ to host \S+/            => 'TOS-host-redirect', # XXX
-	qr/in-transit/                              => 'ttl-zero-during-transit',
-	qr/ip reassembly/                           => 'ttl-zero-during-reassembly',
-	qr/parameter problem/                       => 'ip-header-bad', # XXX
-	qr/required option missing/                 => 'required-option-missing' # XXX
+	# destination unreachable codes (type 3)
+
+	qr/net \S+ unreachable(?! -)/ => 'network-unreachable',                              # 0
+	qr/host \S+ unreachable(?! -)/ => 'host-unreachable',                                # 1
+	qr/protocol \d+ unreachable/ => 'protocol-unreachable',                              # 2
+	qr/port \S+ unreachable/ => 'port-unreachable',                                      # 3
+	qr/unreachable - need to frag/ => 'fragmentation-needed',                            # 4
+	qr/unreachable - source route failed/ => 'source-route-failed',                      # 5
+	qr/net \S+ unreachable - unknown/ => 'network-unknown',                              # 6
+	qr/host \S+ unreachable - unknown/ => 'host-unknown',                                # 7
+	qr/net \S+ unreachable - admin prohibited(?! filter)/ => 'network-prohibited',       # 9
+	qr/host \S+ unreachable - admin prohibited/ => 'host-prohibited',                    # 10
+	qr/net \S+ unreachable - tos prohibited/ => 'TOS-network-unreachable',               # 11
+	qr/host \S+ unreachable - tos prohibited/ => 'TOS-host-unreachable',                 # 12
+	qr/host \S+ unreachable - admin prohibited filter/ => 'communication-prohibited',    # 13
+	qr/host \S+ unreachable - host precedence violation/ => 'host-precedence-violation', # 14
+	qr/host \S+ unreachable - precedence cutoff/ => 'precedence-cutoff',                 # 15
+
+	# redirect codes (type 5)
+
+	qr/redirect \S+ to net \S+/ => 'network-redirect',         # 0
+	qr/redirect \S+ to host \S+/ => 'host-redirect',           # 1
+	qr/redirect-tos \S+ to net \S+/ => 'TOS-network-redirect', # 2
+	qr/redirect-tos \S+ to host \S+/ => 'TOS-host-redirect',   # 3 - XXX not in tcpdump?!?!
+
+	# time-exceeded codes (type 11)
+
+	qr/time exceeded in-transit/ => 'ttl-zero-during-transit',       # 0
+	qr/ip reassembly time exceeded/ => 'ttl-zero-during-reassembly', # 1
+
+	# parameter-problem codes (type 12)
+
+	qr/parameter problem - code 0/ => 'ip-header-bad',          # 0
+	qr/paramerer problem - code 1/ => 'required-option-missing' # 1
 );
 
-main:
-{
-	handle_options();
-	get_self();
-	get_ports();
-	build_chains();
-	fwhelper();
-	exit(0);
-}
+handle_options();
+get_self();
+get_ports();
+build_chains();
+fwhelper();
+exit;
 
 sub handle_options
 {
@@ -231,7 +229,11 @@ sub help()
 		"    -n        Only prints `ipchain -C' commands, doesn't execute them\n",
 		"    -s        Simulates rules and prints matching rules/policies\n",
 		"    -i ifname Specifies the network interface name to analyze\n",
-		"    -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address\n";
+		"    -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address\n",
+		"\n",
+		"Type \"perldoc -F `which fwhelper`\" for the manpage.\n",
+		"\n";
+
 	exit(1);
 }
 
@@ -325,7 +327,7 @@ sub build_chains
 			$chain = $1, next if /^Chain (\S+) \(\d+ references\):$/;
 			next if /^ pkts\s+bytes\s+target\s+prot\s+opt\s+tosa\s+tosx\s+ifname\s+mark\s+outsize\s+source\s+destination\s+ports$/;
 			my ($target, $prot, $opt, $ifname, $src, $dst, $ports) =
-				$_ =~ /^\s*\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/; # XXX mark and outsize parsing
+				$_ =~ /^\s*\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/; # XXX mark and outsize parsing (-v)
 			die "ipchains parse error: $_\n" unless defined $target && defined $prot && defined $opt && defined $ifname && defined $src && defined $dst && defined $ports;
 			next if $target eq '-';
 			my $srcport = undef;
@@ -439,7 +441,7 @@ sub sim
 
 		if (defined $target)
 		{
-			return undef if $target eq 'RETURN'; # XXX untested
+			return undef if $target eq 'RETURN';
 
 			$target = sim($indent + 1, $target, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn);
 
@@ -470,7 +472,7 @@ sub match_rule
 	my $rule_target = $$rule[8];
 
 	return undef if defined $rule_ifname && $ifname ne $rule_ifname;
-	return undef if defined $rule_proto && $proto ne $rule_proto;
+	return undef if defined $rule_proto && $rule_proto ne 'unknown' && $proto ne $rule_proto;
 	return undef if defined $rule_frag && $frag != $rule_frag;
 	return undef if defined $rule_syn && $syn != $rule_syn;
 	return undef unless match_addr($rule_src, $src);
@@ -560,11 +562,10 @@ sub fwhelper
 		die "Parse error: unknown chain (line $line): $text\n" unless $chain;
 		my $cmd;
 
-		# XXX need to parse/test/simulate fragments and icmp packets properly
-
-		if ($info =~ /^([SFPR\.]+) /)
+		if ($info =~ /^([SFPRU\.]+) /)
 		{
 			$proto = 'tcp';
+			$frag = '-f' if $info =~ /frag/;
 			my $tcp_info = $1;
 			$syn = '-y' if $tcp_info =~ /S/;
 			($src, $srcport) = $src =~ /^(.*)\.([^.]+)$/;
@@ -577,6 +578,7 @@ sub fwhelper
 		{
 			$proto = 'icmp';
 			my $icmp_info = $1;
+			$frag = '-f' if $info =~ /frag/;
 			my $name;
 
 			for (keys %icmp_type)
@@ -600,22 +602,31 @@ sub fwhelper
 
 			die "Parse error: invalid icmp (line $line): $text\n" unless defined $name;
 
-			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $name -d $dst";
+			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $name -d $dst $frag";
 		}
-		else
+		elsif ($info =~ /^udp /)
 		{
 			$proto = 'udp';
+			$frag = '-f' if $info =~ /frag/;
 			($src, $srcport) = $src =~ /^(.*)\.([^].]+)$/;
 			die "Parse error: invalid src addr (line $line): $text\n" unless defined $src && defined $srcport;
 			($dst, $dstport) = $dst =~ /^(.*)\.([^].]+)$/;
 			die "Parse error: invalid dst addr (line $line): $text\n" unless defined $dst && defined $dstport;
 			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $srcport -d $dst $dstport";
 		}
+		elsif ($info =~ /frag/)
+		{
+			$proto = 'unknown';
+			$cmd = "ipchains -C $chain -i $if -s $src -d $dst -f";
+		}
+		else
+		{
+			die "Parse error: unknown tcpdump output (line $line): $text\n";
+		}
 
 		print $cmd, "\n";
 		simulate($chain, $if, $proto, $src, $srcport, $dst, $dstport, $frag ne '', $syn ne '') if exists $opt{s};
 		system($cmd) unless exists $opt{n};
-		print "\n";
 	}
 }
 

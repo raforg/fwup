@@ -1,4 +1,5 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
+$^W = 1;
 use strict;
 
 # firewall - http://fwup.org/
@@ -49,58 +50,16 @@ properly. You'll just have to use IP addresses directly when this is the case.
 
 =head1 AUTHOR
 
-20010211 raf <raf@raf.org>
+20010507 raf <raf@raf.org>
 
 =cut
 
 use Net::DNS;
 
 my $resolver = new Net::DNS::Resolver;
+
 $resolver->defnames(0);
 $resolver->retry(1);
-
-main:
-{
-	while (<>)
-	{
-		chop();
-		my $comment = '';
-		$comment = $1, s/#.*$// if /(#.*$)/;
-		my $before = '';
-		my $after = $_;
-
-		my $dns;
-		while (($dns) = $after =~ /([a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\.[.a-zA-Z0-9-]+)/)
-		{
-			my $prematch = $`;
-			my $postmatch = $';
-
-			unless ($dns =~ /[a-zA-Z-]/)
-			{
-				$before .= $prematch . $dns;
-				$after = $postmatch;
-				next;
-			}
-
-			my @addr = lookup($dns);
-			if ($#addr != -1)
-			{
-				my $addrlist = join(' ', @addr);
-				$before .= $prematch . $addrlist;
-				$after = $postmatch;
-			}
-			else
-			{
-				$before .= $prematch . $dns;
-				$after = $postmatch;
-			}
-		}
-
-		print $before, $after, $comment, "\n";
-	}
-
-	exit(0);
-}
 
 sub lookup
 {
@@ -108,6 +67,7 @@ sub lookup
 	my @addr = ();
 
 	my $query = $resolver->search($name, 'ANY');
+
 	if ($query)
 	{
 		for my $rr ($query->answer)
@@ -124,6 +84,45 @@ sub lookup
 	}
 
 	return @addr;
+}
+
+while (<>)
+{
+	chop();
+	my $comment = '';
+	$comment = $1, s/#.*$// if /(#.*$)/;
+	my $before = '';
+	my $after = $_;
+
+	my $dns;
+	while (($dns) = $after =~ /([a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\.[.a-zA-Z0-9-]+)/)
+	{
+		my $prematch = $`;
+		my $postmatch = $';
+
+		unless ($dns =~ /[a-zA-Z-]/)
+		{
+			$before .= $prematch . $dns;
+			$after = $postmatch;
+			next;
+		}
+
+		my @addr = lookup($dns);
+
+		if ($#addr != -1)
+		{
+			my $addrlist = join(' ', @addr);
+			$before .= $prematch . $addrlist;
+			$after = $postmatch;
+		}
+		else
+		{
+			$before .= $prematch . $dns;
+			$after = $postmatch;
+		}
+	}
+
+	print $before, $after, $comment, "\n";
 }
 
 # vi:set ts=4 sw=4:

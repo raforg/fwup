@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20010211 raf <raf@raf.org>
+# 20010507 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown

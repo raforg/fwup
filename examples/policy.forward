@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20010211 raf <raf@raf.org>
+# 20010507 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -140,13 +140,13 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 #
 
 ##############################################################################
-# Single Host
+# Single Host (no forwarding, no address/port translation)
 #
 # This is for a single host that connects to an external network.
 #
 
 ##############################################################################
-# Forwarding
+# Forwarding (no address/port translation)
 #
 # This is for a host that performs normal routing between internal and
 # external networks.
@@ -204,6 +204,7 @@ TARGET_all="10.0.0.0/24"
 # MASQ_MODULES="$MASQ_MODULES cuseeme"
 # MASQ_MODULES="$MASQ_MODULES ftp"
 # MASQ_MODULES="$MASQ_MODULES irc"
+# MASQ_MODULES="$MASQ_MODULES icq"
 # MASQ_MODULES="$MASQ_MODULES quake"
 # MASQ_MODULES_quake="26000,27000,27910,27960"
 # MASQ_MODULES="$MASQ_MODULES raudio"
@@ -214,7 +215,7 @@ TARGET_all="10.0.0.0/24"
 # IPV4_MASQ_UDP_DEST_LOOSE="no"
 
 ##############################################################################
-# Port Forwarding (incoming and outgoing M:1 NAPT)
+# Port Forwarding (Masquerading + incoming 1:M NAPT)
 #
 # This is for a host that needs to masquerade internal networks behind the
 # single IP address by which it is known to an external network and to
@@ -252,7 +253,7 @@ TARGET_all="10.0.0.0/24"
 # e.g. PORTRANGEFW="$PORTRANGEFW tcp 4000:4400 10.0.0.1"
 
 ##############################################################################
-# Alias Port Forwarding (outgoing M:1 NAPT and incoming M:N NAPT)
+# Alias Port Forwarding (Masquerading + incoming N:M NAPT)
 #
 # This is for a host that needs to translate between real IP addresses by
 # which it is known to an external network (aliased to a single network
@@ -1224,7 +1225,8 @@ SERVICES="$SERVICES ohttps.all" # The lan can use HTTPS
 #
 # Note: VNC provides remote control of other hosts so don't allow it across
 # a firewall. If you need to run internal VNC servers, restrict access to
-# known clients.
+# known clients. Also, there is a known current vulnerability in the
+# authorisation mechanism used.
 #
 # Open: tcp/5800-5801,5900-5902
 
@@ -1234,8 +1236,8 @@ SERVICES="$SERVICES ohttps.all" # The lan can use HTTPS
 # Blank means no hosts.
 # VNC_CLIENTS=""
 
-# Ports used by external VNC servers (determined by number of displays)
-# OUTGOING_VNC_PORTS="5800:5801 5900:5902"
+# Ports used by the local VNC servers (determined by number of displays)
+# INCOMING_VNC_PORTS="5800:5801 5900:5902"
 
 ##############################################################################
 # Outgoing VNC
@@ -1253,6 +1255,56 @@ SERVICES="$SERVICES ohttps.all" # The lan can use HTTPS
 
 # Ports used by external VNC servers (determined by number of displays)
 # OUTGOING_VNC_PORTS="5800:5801 5900:5902"
+
+##############################################################################
+# Incoming PCANYWHERE
+#
+# Note: This is inherently dangerous so limit it to specific hosts.
+#
+# Open: tcp/5631, udp/5632
+
+# SERVICES="$SERVICES ipcany"
+
+# List of hosts which may connect to local PC ANYWHERE servers.
+# Blank means no hosts.
+# PCANYWHERE_CLIENTS=""
+
+##############################################################################
+# Outgoing PCANYWHERE
+#
+# Note: This uses udp so limit it to specific hosts.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES opcany"
+
+# List of PC ANYWHERE servers to which this network may connect.
+# Blank means no hosts.
+# PCANYWHERE_SERVERS=""
+
+##############################################################################
+# Incoming WINDOWS TERMINAL SERVER
+#
+# Note: This is inherently dangerous so limit it to specific hosts.
+#
+# Open: tcp/3389
+
+# SERVICES="$SERVICES iwterm"
+
+# Lists of hosts which may connect to local WINDOWS TERMINAL SERVER servers.
+# Blank means no hosts.
+# WINTERM_CLIENTS=""
+
+##############################################################################
+# Outgoing WINDOWS TERMINAL SERVER
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+# SERVICES="$SERVICES owterm"
+
+# Lists of WINDOWS TERMINAL SERVER servers to which this network may connect.
+# Blank means all hosts.
+# WINTERM_SERVERS=""
 
 ##############################################################################
 # Incoming NTP
@@ -2123,6 +2175,121 @@ SERVICES="$SERVICES otrace otrace.all" # This host and the lan can use TRACEROUT
 # A host either on the perimeter network or beyond that is needed to provide
 # an unsafe service. It is expected that, if an unsafe service is required,
 # the victim host serving it will become compromised sooner rather than later.
+#
+
+##############################################################################
+# Kernel Configuration Requirements
+#
+# Your kernel will need to be configured with some or all of the following
+# kernel parameters depending on your network topology [as noted]:
+#
+# General Setup
+# ~~~~~~~~~~~~~
+#  Networking support (CONFIG_NET)
+#   - networking [all]
+#
+#  Sysctl support (CONFIG_SYSCTL)
+#   - runtime kernel configuration [all]
+#
+# Networking options
+# ~~~~~~~~~~~~~~~~~~
+#  Packet socket (CONFIG_PACKET)
+#   - tcpdump [all]
+#
+#  Kernel/User netlink socket (CONFIG_NETLINK)
+#   - firewall logs [all]
+#
+#  Routing messages (CONFIG_RTNETLINK)
+#   - /dev/route [probably not needed]
+#
+#  Network firewalls (CONFIG_FIREWALL)
+#   - firewall [all]
+#
+#  TCP/IP networking (CONFIG_INET)
+#   - tcp/ip [all]
+#
+#  IP: advanced router (CONFIG_IP_ADVANCED_ROUTER)
+#   - policy routing [aliasportfw, staticnat]
+#
+#  IP: policy routing (CONFIG_IP_MULTIPLE_TABLES)
+#   - policy routing [aliasportfw, staticnat]
+#
+#  IP: verbose route monitoring (CONFIG_IP_ROUTE_VERBOSE)
+#   - route (ip spoof) log messages [all]
+#
+#  IP: fast network address translation (CONFIG_IP_ROUTE_NAT)
+#   - nat [aliasportfw, staticnat]
+#
+#  IP: firewalling (CONFIG_IP_FIREWALL)
+#   - firewall [all]
+#
+#  IP: firewall packet netlink device (CONFIG_IP_FIREWALL_NETLINK)
+#   - let ipchains pass packets to userspace [iff your IDS needs it]
+#
+#  IP: use FWMARK value as routing key (CONFIG_IP_ROUTE_FWMARK)
+#   - fwmark policy routing/nat [aliasportfw]
+#
+#  IP: transparent proxy support (CONFIG_IP_TRANSPARENT_PROXY)
+#   - transparent proxy [iff REDIRECT is used]
+#
+#  IP: masquerading (CONFIG_IP_MASQUERADE)
+#   - masquerading [masq, portfw, aliasportfw]
+#
+#  IP: ICMP masquerading (CONFIG_IP_MASQUERADE_ICMP)
+#   - icmp masquerading [masq, portfw, aliasportfw]
+#
+#  IP: masquerading special modules support (CONFIG_IP_MASQUERADE_MOD)
+#   - port forwarding [portfw, aliasportfw]
+#
+#  IP: ipportfw masq support (CONFIG_IP_MASQUERADE_IPPORTFW)
+#   - port forwarding [portfw, aliasportfw]
+#
+#  IP: ip fwmark masq-forwarding support (CONFIG_IP_MASQUERADE_MFW)
+#   - mfw port forwarding [portfw iff PORTRANGEFW used, aliasportfw]
+#
+#  IP: aliasing support (CONFIG_IP_ALIAS)
+#   - multiple addresses per interface [aliasportfw]
+#
+#  IP: TCP syncookie support (CONFIG_SYN_COOKIES)
+#   - synflood protection [all]
+#
+# If you have a 2.4.x kernel, you will need the ipchains backwards
+# compatibility module rather than the new netfilter code.
+#
+#  IP: Netfilter Configuration (CONFIG_IP_NF_COMPAT_IPCHAINS)
+#
+# Filesystems:
+# ~~~~~~~~~~~~
+#  /proc filesystem support (CONFIG_PROC_FS)
+#   - runtime kernel configuration [all]
+#
+
+##############################################################################
+# Kernel module requirements
+#
+# If you are masquerading, you may need any of several application helper
+# modules. I'm not entirely sure when these modules are needed since I don't
+# use them myself. You'll have to read their respective documentation to see
+# whether or not you need them.
+#
+# ip_masq_portfw - comes with the kernel
+# ip_masq_mfw    - comes with the kernel
+# ip_masq_h323   - http://www.coritel.it/projects/sofia/nat.html
+# ip_masq_ftp    - comes with the kernel
+# ip_masq_irc    - comes with the kernel
+# ip_masq_icq    - http://members.tripod.com/~djsf/masq-icq/
+# ip_masq_raudio - comes with the kernel
+#
+
+##############################################################################
+# Software Requirements
+#
+# Your firewall/masquerading host will need some or all of the following
+# software installed depending on your network topology [as noted]:
+#
+# ipchains-1.3.10 - http://netfilter.kernelnotes.org/ipchains/ [all]
+# ipmasqadm-0.4.2 - http://juanjox.kernelnotes.org/ [portfw, aliasportfw]
+# iproute2-000305 - ftp://ftp.inr.ac.ru/ [aliasportfw, staticnat]
 #
 
 # vim:set filetype=sh:

@@ -1,4 +1,5 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
+$^W = 1;
 use strict;
 
 # firewall - http://fwup.org/
@@ -20,34 +21,34 @@ use strict;
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 # or visit http://www.gnu.org/copyleft/gpl.html
 
-# tuplegram - prints a histogram of connection tuples in tcpdump output
+# tcpdump-histogram - prints a histogram of packets in tcpdump output
 #
 # 20000817 raf <raf@raf.org>
 
-my %pairs = ();
+my %pairs;
 
-main:
+while (<>)
 {
-	while (<>)
-	{
-		my ($src, $dst, $rest) = $_ =~ /\S+ (\S+) > ([^:]+): (.*)$/;
-		die("Bad line: $_\n") unless defined $src and defined $dst;
-		last unless defined $src and defined $dst;
-		++$pairs{'icmp: ' . $src . ' -> ' . $dst . ' ' . $1}, next
-			if $rest =~ /^icmp: (.*)$/;
-		my ($srcport) = $src =~ /\d+\.\d+\.\d+\.\d+\.([^.]+)/;
-		my ($dstport) = $dst =~ /\d+\.\d+\.\d+\.\d+\.([^.]+)/;
-		last unless defined $srcport and defined $dstport;
-		++$pairs{'udp: ' . $src . ' -> ' . $dst}, next
-			if $rest =~ /^udp/;
-		my $conn = ($rest =~ /^S/ and $rest !~ / ack /) ? '-syn' : '';
-		++$pairs{'tcp: ' . $src . ' -> ' . $dst . $conn};
-	}
+	++$pairs{$1}, next
+		if /^\S+ (arp who-has \S+ tell \S+)$/;
 
-	for (sort keys %pairs)
-	{
-		print("$_ ($pairs{$_} packet", (($pairs{$_} == 1) ? '' : 's'), ")\n");
-	}
+	++$pairs{$1}, next
+		if /^\S+ (arp reply \S+ is-at \S+)$/;
 
-	exit(0);
+	++$pairs{"icmp: $1 -> $2 $3"}, next
+		if /^\S+ (\S+) > (\S+): icmp: (.*)$/;
+
+	++$pairs{"udp: $1 -> $2"}, next
+		if /^\S+ (\S+) > (\S+): udp /;
+
+	++$pairs{"tcp: $1 -> $2"}, next
+		if /^\S+ (\S+) > (\S+): .* ack /;
+
+	++$pairs{"tcp: $1 -> $2 [Syn]"}, next
+		if /^\S+ (\S+) > (\S+): S /;
+}
+
+for (sort keys %pairs)
+{
+	print("$_ ($pairs{$_} packet", (($pairs{$_} == 1) ? '' : 's'), ")\n");
 }

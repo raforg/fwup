@@ -1,0 +1,179 @@
+#!/bin/sh
+#
+# firewall - http://fwup.org/
+#
+# Copyright (C) 1999-2001 raf <raf@raf.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# meta-firewall - control script for managing multiple remote firewalls
+#
+# 20010507 raf <raf@raf.org>
+
+PATH=/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin export PATH
+
+[ -z "$root" ] && root="root"                 # change for alternate superuser
+[ -z "$mfwd" ] && mfwd="/etc/meta-firewall.d" # meta-firewall data directory
+[ -z "$verbose" ] && verbose="yes"            # trace scp/ssh commands (default)
+PS1='# '; PS2='# '; PS3='# '; PS4='# '        # short prompt for tracing
+
+die() { logger -t "`basename $0`" -p daemon.notice -s $*; exit 1; }
+
+targets()
+{
+	local targets="$@"
+	if [ -z "$targets" ]
+	then
+		cd "$mfwd"
+		for name in *
+		do
+			[ -d "$name" ] && targets="$targets $name"
+		done
+	fi
+	echo $targets
+}
+
+remote()
+{
+	local cmd="$1"
+	shift
+	for target in `targets $*`
+	do
+		[ "$verbose" = "yes" ] && set -x
+		ssh -x "$root@$target" ./firewall "$cmd"
+		set +x
+	done
+}
+
+[ -d "$mfwd" ] || die "failed to find $mfwd (check installation)"
+
+case "$1" in
+
+	prepare)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -d "$mfwd/$2" ] || mkdir "$mfwd/$2" || die "failed to create $mfwd/$2"
+		[ -f "$mfwd/$2/firewall.policy" ] && die "refusing to overwrite $mfwd/$2/firewall.policy"
+		[ -f "$mfwd/firewall.policy" ] || die "failed to find $mfwd/firewall.policy (check installation)"
+		install "$mfwd/firewall.policy" "$mfwd/$2" || die "failed to cp $mfwd/firewall.policy $mfwd/$2"
+		chmod 600 "$mfwd/$2/firewall.policy" || die "failed to chmod 600 $mfwd/$2/firewall.policy"
+		;;
+
+	edit)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare first)"
+		"${EDITOR:-/bin/vi}" "$mfwd/$2/firewall.policy" || die "failed to ${EDITOR:-/bin/vi} $mfwd/$2/firewall.policy"
+		;;
+
+	install)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit first)"
+		[ "`diff \"$mfwd/$2/firewall.policy\" \"$mfwd/firewall.policy\"`" = "" ] && die "must prepare/read/understand/edit the policy file first"
+		[ -f "$mfwd/make-install" ] || die "failed to find $mfwd/make-install (check installation)"
+		[ -f "$mfwd/make-uninstall" ] || die "failed to find $mfwd/make-uninstall (check installation)"
+		[ -f "$mfwd/make-policy" ] || die "failed to find $mfwd/make-policy (check installation)"
+		[ -f "$mfwd/make-ls" ] || die "failed to find $mfwd/make-ls (check installation)"
+		[ -f "$mfwd/firewall" ] || die "failed to find $mfwd/firewall (check installation)"
+		[ -f "$mfwd/fwup" ] || die "failed to find $mfwd/fwup (check installation)"
+		[ -f "$mfwd/fwdown" ] || die "failed to find $mfwd/fwdown (check installation)"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$mfwd/make-install" "$mfwd/make-uninstall" "$mfwd/make-policy" "$mfwd/make-ls" "$mfwd/firewall" "$mfwd/fwup" "$mfwd/fwdown" "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp files to $2"
+		ssh -x "$root@$2" "./make-install && rm ./firewall.policy ./fwup ./fwdown" || die "failed to ssh make-install on $2"
+		set +x
+		;;
+
+	policy)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit first)"
+		[ "`diff \"$mfwd/$2/firewall.policy\" \"$mfwd/firewall.policy\"`" = "" ] && die "must prepare/read/understand/edit the policy file first"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp $mfwd/$2/firewall.policy to $2"
+		ssh -x "$root@$2" "./make-policy && rm ./firewall.policy" || die "failed to ssh make-policy on $2"
+		set +x
+		;;
+
+	uninstall)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit/install first)"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp $mfwd/$2/firewall.policy to $2"
+		ssh -x "$root@$2" "./make-uninstall && rm ./firewall.policy ./firewall ./make-install ./make-uninstall ./make-policy ./make-ls" || die "failed to ssh make-uninstall on $2"
+		set +x
+		;;
+
+	ls)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit/install/policy first)"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$mfwd/$2/firewall.policy" "$root@$2:" || die "failed to scp $mfwd/$2/firewall.policy to $2"
+		ssh -x "$root@$2" "./make-ls && rm ./firewall.policy" || die "failed to ssh make-ls on $2"
+		set +x
+		;;
+
+	start|up|stop|down|restart|reload|status|probe)
+		remote $*
+		;;
+
+	*)
+		echo "usage: $0 <command> [host...]"
+		echo
+		echo " The following commands require a single hostname. You will need $root access"
+		echo " via openssh to this host. You will have to enter the remote $root password or"
+		echo " your passphrase twice. ssh-agent(1) can make this less tedious."
+		echo
+		echo "  prepare   - Create a directory in $mfwd for the remote host"
+		echo "  edit      - Edit the remote host's policy file"
+		echo "  install   - Install the firewall scripts onto the remote host"
+		echo "  policy    - Install the remote host's policy file"
+		echo "  uninstall - Uninstall the firewall from the remote host"
+		echo "  ls        - List the files related to the remote firewall installation"
+		echo
+		echo " The following commands take any number of hostnames as arguments. If there are"
+		echo " no hostname arguments, it defaults to all remote hosts for which a directory"
+		echo " exists in /etc/meta-firewall.d. You will need to enter the remote $root password"
+		echo " or your passphrase once for each host unless you use ssh-agent(1)."
+		echo
+		echo "  start|up  - Start the remote firewall(s)"
+		echo "  stop|down - Stop the remote firewall(s)"
+		echo "  restart   - Restart the remote firewall(s)"
+		echo "  reload    - Reload the remote firewall(s) (quicker than restart)"
+		echo "  status    - Show the status of the remote firewall(s)"
+		echo "  probe     - Show detailed status of the remote firewall(s)"
+		echo
+		echo " A typical installation sequence is:"
+		echo
+		echo "  $0 prepare <fw>"
+		echo "  $0 edit <fw>"
+		echo "  $0 install <fw>"
+		echo "  $0 policy <fw>"
+		echo "  $0 start"
+		echo
+		echo " A typical policy update sequence is:"
+		echo
+		echo "  $0 edit <fw>"
+		echo "  $0 policy <fw>"
+		echo "  $0 reload"
+		echo
+		echo " Where <fw> is the hostname of a remote firewall."
+		echo
+		exit 1
+		;;
+
+esac
+
+exit 0
+
+# vi:set ts=4 sw=4:

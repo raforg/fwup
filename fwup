@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20010211 raf <raf@raf.org>
+# 20010507 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -59,9 +59,10 @@ SETCOLOR_SUCCESS="echo -en \\033[1;32m"
 SETCOLOR_FAILURE="echo -en \\033[1;31m"
 SETCOLOR_NORMAL="echo -en \\033[0;39m"
 
+[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
+
 log()
 {
-	[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
 	logger -t "$PROG_NAME" -p daemon.notice $*
 }
 
@@ -562,7 +563,7 @@ done
 
 quick_start()
 {
-	cmdfile="`mktemp -q /tmp/$0.XXXXXX`"
+	cmdfile="`mktemp -q /tmp/$PROG_NAME.XXXXXX`"
 	[ $? -ne 0 -o -z "$cmdfile" ] && IPCHAINS_QUICK="0"
 }
 
@@ -2308,6 +2309,11 @@ oreal()
 ##############################################################################
 # Incoming VNC
 #
+# Note: VNC provides remote control of other hosts so don't allow it across
+# a firewall. If you need to run internal VNC servers, restrict access to
+# known clients. Also, there is a known current vulnerability in the
+# authorisation mechanism used.
+#
 # Open: tcp/5800-5801,5900-5902
 
 ivnc()
@@ -2321,6 +2327,9 @@ ivnc()
 ##############################################################################
 # Outgoing VNC
 #
+# Note: Permit this if you need to remotely control external hosts running
+# VNC servers.
+#
 # Open: tcp(ack)/1024-4999,61000-65096
 
 ovnc()
@@ -2329,6 +2338,54 @@ ovnc()
 	do
 		outgoing_tcp_any vnc "$1" "$ports" VNC_SERVERS $2
 	done
+}
+
+##############################################################################
+# Incoming PCANYWHERE
+#
+# Note: This is inherently dangerous so limit it to specific hosts.
+#
+# Open: tcp/5631, udp/5632
+
+ipcany()
+{
+	incoming_tcp_only pcany "$1" 5631 PCANYWHERE_CLIENTS $2
+	incoming_udp_only pcany "$1" 5632 PCANYWHERE_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing PCANYWHERE
+#
+# Note: This uses udp so limit it to specific hosts.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+opcany()
+{
+	outgoing_tcp_only pcany "$1" 5631 PCANYWHERE_SERVERS $2
+	outgoing_udp_only pcany "$1" 5632 PCANYWHERE_SERVERS $2
+}
+
+##############################################################################
+# Incoming WINDOWS TERMINAL SERVER
+#
+# Note: This is inherently dangerous so limit it to specific hosts.
+#
+# Open: tcp/3389
+
+iwterm()
+{
+	incoming_tcp_only wterm "$1" 3389 WINTERM_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing WINDOWS TERMINAL SERVER
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+owterm()
+{
+	outgoing_tcp_any wterm "$1" 3389 WINTERM_SERVERS $2
 }
 
 ##############################################################################
@@ -4051,13 +4108,15 @@ do_start_filter()
 	then
 		ipchains -A input $LOG
 		ipchains -A output $LOG
-		ipchains -A forward $LOG
+		yes "$FORWARDING" || ipchains -A forward $LOG
 	fi
 
 	not yes "$IPCHAINS_QUICK" || quick_run
 }
 
-action "Starting IP Packet Filter" do_start_filter
+[ "$IPCHAINS_QUICK" = "1" ] && method="(quick method)" || method="(slow method)"
+
+action "Starting IP Packet Filter $method" do_start_filter
 
 ##############################################################################
 # Load IP Masquerading Modules

@@ -20,15 +20,14 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# firewall - Startup script for an ipchains packet filtering firewall
+# firewall - control script for an ipchains packet filtering firewall
 #
-# name: /etc/rc.d/init.d/firewall
-# description: firewall provides network security
+# chkconfig: 2345 09 91
+# description: Firewall provides network security and address/port translation
 # lockfile: /var/lock/subsys/firewall
-# programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20010211 raf <raf@raf.org>
+# 20010507 raf <raf@raf.org>
 
 # Set the path explicitly
 
