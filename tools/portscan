@@ -1,0 +1,118 @@
+#!/bin/sh
+
+# Perform several types of port scan
+
+if [ -z "$1" ]
+then
+	echo "usage: $0 target" >&2
+	exit 1
+fi
+
+exec 2>&1
+
+#ports="-p 1-65535"
+#timing="-T Polite"
+
+echo "Start time: `date`"
+echo
+
+echo "OS Detection"
+echo ~~~~~~~~~~~~
+echo nmap -P0 -O $1
+echo
+nmap -P0 -O $1
+
+echo
+echo "TCP connect scan (with ident, RPC scan)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sT -sR -I $ports $timing $1
+echo
+nmap -P0 -sT -sR -I $ports $timing $1
+
+echo
+echo "TCP SYN scan (from port 53/dns)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sS $ports -g 53 $timing $1
+echo
+nmap -P0 -sS $ports -g 53 $timing $1
+
+echo
+echo "TCP SYN scan (from port 20/ftp-data)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sS $ports -g 20 $timing $1
+echo
+nmap -P0 -sS $ports -g 20 $timing $1
+
+echo
+echo "TCP SYN scan"
+echo ~~~~~~~~~~~~
+echo nmap -P0 -sS $ports $timing $1
+echo
+nmap -P0 -sS $ports $timing $1
+
+echo
+echo "TCP SYN scan (with fragments)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sS -f $ports $timing $1
+echo
+nmap -P0 -sS -f $ports $timing $1
+
+echo
+echo "Stealth FIN scan"
+echo ~~~~~~~~~~~~~~~~
+echo nmap -P0 -sF $ports $timing $1
+echo
+nmap -P0 -sF $ports $timing $1
+
+echo
+echo "Stealth FIN scan (with fragments)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sF -f $ports $timing $1
+echo
+nmap -P0 -sF -f $ports $timing $1
+
+echo
+echo "Xmas Tree scan"
+echo ~~~~~~~~~~~~~~
+echo nmap -P0 -sX $ports $timing $1
+echo
+nmap -P0 -sX $ports $timing $1
+
+echo
+echo "Xmas Tree scan (with fragments)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sX -f $ports $timing $1
+echo
+nmap -P0 -sX -f $ports $timing $1
+
+echo
+echo "Null scan"
+echo ~~~~~~~~~
+echo nmap -P0 -sN $ports $timing $1
+echo
+nmap -P0 -sN $ports $timing $1
+
+echo
+echo "Null scan (with fragments)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sN -f $ports $timing $1
+echo
+nmap -P0 -sN -f $ports $timing $1
+
+echo
+echo "UDP scan (with RPC scan)"
+echo ~~~~~~~~
+echo nmap -P0 -sU -sR $ports $timing $1
+echo
+nmap -P0 -sU -sR $ports $timing $1
+
+echo
+echo "UDP scan (from port 53/dns)"
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo nmap -P0 -sU $ports -g 53 $timing $1
+echo
+nmap -P0 -sU $ports -g 53 $timing $1
+
+echo
+echo "End time: `date`"
+

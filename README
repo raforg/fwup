@@ -3,22 +3,38 @@ README
 firewall - Linux-2.2 ipchains (packet filtering) firewall administration
 
 This contains scripts that manage an ipchains (packet filtering) firewall.
-All you have to do is edit the policy file as per your requirements.
+All you have to do is read the policy file and edit it to your requirements.
 
-Policies are specified by editing the policy file to specify trusted and
-untrusted network interfaces, the services you wish to permit, and the
-external hosts which may take part in these services.
+The policy file is composed of sections in which you need to specify much
+information: this host's trusted and untrusted network interfaces; this
+host's role and function within the network topology; and the incoming and
+outgoing services to allow and the internal and external hosts that may
+take part in them. It has been designed so as to make this as painless and
+flexible as possible.
 
-This supports up to 10 untrusted interfaces, each with a distinct policy
-(Although all aliases on a single untrusted interface are treated equally).
-There can be as much or as little sharing of policy between untrusted
+Each section contains detailed explanations and advice on things such as
+when to start the firewall and the security implications of various well
+known internet services and advice on how to allow them safely. It is
+intended to introduce administrators to some subtleties of packet
+filtering quickly so that they can make better informed security decisions
+and achieve and maintain effective network security (at least the packet
+filtering part) in a very short time. Of course, it will not prevent you
+from achieving bad network security, but you will have been warned :)
+
+Each section also contains commented out variables that can be uncommented
+and possibly edited to supply policy information to fwup. Some of them
+show the default values used by fwup. Others are choices. Others still are
+just examples. Hopefully it's clear which is which. Each policy variable
+is explained when encountered.
+
+Various network topologies are supported: standalone host, forwarding
+host, simple masquerading host, simple port forwarding/masquerading host,
+alias masquerading host (not implemented yet) and static NAT host (not
+implemented yet).
+
+Up to 10 untrusted network interfaces are supported, each with a distinct
+policy. There can be as much or as little policy sharing between untrusted
 interfaces as you like.
-
-There is primitive support for IP masquerading. Masqueraded hosts can engage
-in permitted outgoing services (except OSPF, DHCP, PPTP and IPSEC) exactly
-like the current host and are bound by the same restrictions. Distinct policies
-for internal hosts isn't implemented until the next release. Then comes NAPT
-support.
 
 The policy is specified in the firewall.policy file.
 
@@ -36,6 +52,8 @@ Here is the list of currently supported services:
     opop    - outgoing POP
     iimap   - incoming IMAP
     oimap   - outgoing IMAP
+    ildap   - incoming LDAP
+    oldap   - outgoing LDAP
     ispop   - incoming SSL-POP
     ospop   - outgoing SSL-POP
     isimap  - incoming SSL-IMAP
@@ -44,8 +62,8 @@ Here is the list of currently supported services:
     osldap  - outgoing SSL-LDAP
     issh1   - incoming SSH1
     ossh1   - outgoing SSH1
-    issh2   - incoming SSH2
-    ossh2   - outgoing SSH2
+    issh2   - incoming SSH2/LSH
+    ossh2   - outgoing SSH2/LSH
     inftp   - incoming FTP (normal mode)
     ipftp   - incoming FTP (passive mode)
     onftp   - outgoing FTP (normal mode)
@@ -88,6 +106,8 @@ Here is the list of currently supported services:
     owhois  - outgoing WHOIS
     iauth   - incoming AUTH
     oauth   - outgoing AUTH
+    inotes  - incoming NOTES
+    onotes  - outgoing NOTES
     ilog    - incoming SYSLOG
     olog    - outgoing SYSLOG
     sdhcp   - DHCP Server
@@ -112,16 +132,21 @@ Here is the list of currently supported services:
     itrace  - incoming TRACEROUTE
     otrace  - outgoing TRACEROUTE
 
+Note: Don't trust it. Test it. Many services haven't been tested yet.
+
+Please send me any success reports, bug reports, criticism, comments,
+suggestions, patches, pointers to more information, ...
+
 INSTALL
 ~~~~~~~
-This was written for a Redhat 6.0 Linux 2.2 system. The Makefile assumes a
-Redhat 6.0 /etc layout (so you might have to edit the Makefile or install
-manually). Everything else requires ipchains which is a Linux-2.2 feature.
+The Makefile was written for a Redhat 6.0 Linux 2.2 system. It assumes a
+Redhat 6.0 /etc/rc.d layout (so you might have to edit the Makefile or install
+manually). See REQUIREMENTS for run-time requirements.
 
 Install (as root):
 
-    tar xzf firewall-20000402.tar.gz
-    cd firewall-20000402
+    tar xzf firewall-20000421.tar.gz
+    cd firewall-20000421
     make install
 
 Edit the sample policy file to reflect your filtering policy and install it:
@@ -137,10 +162,6 @@ For more details:
 
     make help
 
-Note: Don't trust it. Test it. Many services haven't been tested yet.
-Please send success reports, bug reports, criticism, comments, suggestions,
-patches, pointers to more information, ...
-
 After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
 your untrusted interfaces (as root from the inside and the outside) to make
 sure that you got what you wanted. If there are any surprises, investigate.
@@ -148,6 +169,15 @@ sure that you got what you wanted. If there are any surprises, investigate.
 If your untrusted interface(s) change IP address, reload the firewall in a
 script that executes as soon as each new IP address is established (e.g.
 /etc/ppp/ip-up.local or /etc/dhcp/*).
+
+REQUIREMENTS
+~~~~~~~~~~~~
+- Linux-2.2.x and ipchains
+- perl used by fwup and the utilities (dns2ip also requires Net-DNS-0.12)
+- ipmasqadm iff doing port forwarding
+- ip (iproute2) iff doing alias masquerading or static NAT (not implemented yet)
+- nmap used by the portscan utility
+- root privileges for ipchains, ipmasqadm, ip and nmap
 
 COPYING
 ~~~~~~~
@@ -218,6 +248,29 @@ HISTORY
     - Fixed bug: typo in DHCP Client rules allowed incoming address updates even when $DHCP_SERVERS is empty
     - Added the ability to specify more simple tcp services in the policy file
 
+20000421
+
+    - Added LDAP, NOTES
+    - Added the ability to deny/reject other protocols without logging them
+    - Added loading/unloading of IP masquerading modules
+    - Deny/Reject fragments iff $IPV4_FRAGMENT_PROTECT != "no"
+    - Made ICMP configurable (default behaviour remains the same)
+    - Added portsummary utility to display connection tuples in tcpdump output
+    - Included some archie server addresses in firewall.policy as a comment
+    - Started determining masquerade ports directly from kernel source
+    - Added support for forwarding to internal hosts with individual policies
+    - Fixed bug: Stopped creating chains that were never used (thanks to
+      forwarding changes, starting the firewall is now twice as fast!)
+    - Fixed bug: Outgoing ICQ rules were wrong (udp rules reversed)
+    - Fixed bug: The extra tcp services weren't being included
+    - Fixed bug: Was doing spoof protection on internal untrusted interfaces
+    - Rewrote/reorganised the initial doco in firewall.policy and README
+    - Added detailed open port profiles to the notes on each service
+    - Added support for port forwarding (incoming and outgoing M:1 NAPT)
+    - Added portscan utility to perform comprehensive portscans
+    - Added an example policy file for each type of supported network tpology
+    - Made chain policies configurable (some like DENY, others like REJECT)
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -230,21 +283,46 @@ Various RFCs
 
 BUGS
 ~~~~
-- More chains and rules are created than is absolutely necessary.
-  This wastes time during firewall creation but they are not used
-  and should have no effect on packet filtering speed.
+- The *SERVERS* and *CLIENTS* policy variables for a given service apply to all
+  instances of a service across a given interface. This means that if you have
+  something like: SERVICES="oservice.targeta oservice.targetb", then the hosts
+  in both targeta and targetb are restricted to connecting to the same set of
+  external servers for the given service. Let me know if this is a problem.
 
-- There is no normal forwarding or NAPT support yet.
+- Masquerading across multiple interfaces is not supported. This is probably
+  a feature since doing so seems very strange. Let me know if this is a problem.
+
+- There is no support for alias masquerading or static NAT yet (next release).
+
+- Perl should not be used in fwup. It's too dangerous to have on a bastion host.
+
+- When port forwarding, internal hosts shouldn't try to make connections to
+  the forwarded port on the external interface. If the port forwarding host
+  tries, the connection will be made to the same host (i.e. the port is not
+  forwarded - because it arrives on the loopback interface). If an internal
+  host tries, the packets get completely lost (probably because it leaves
+  the network on the default route, across the external interface, in the
+  wrong direction, never to be seen again). If anyone knows a solution to
+  this, I'd like to hear about it. In the meantime, the port forwarding
+  host and other internal hosts must connect directly to internal ports.
+
+- Stopping the firewall stops packet forwarding in general. This is intentional.
+  However, on Redhat systems with IPV4_FORWARD="yes" in /etc/sysconfig/network,
+  packet forwarding isn't stopped when the firewall is stopped. This is a
+  convenience (but it is unsafe).
+
+- There is no support for using ipchains' REDIRECT target.
 
 TODO
 ~~~~
 More testing
-Normal forwarding, sets of internal IP addresses, each with their own policy
-Network Address/Port Translation
+Add support for alias masquerading and static NAT (next release)
+Add services: vpn, cuseeme, vdolive, quake, unreal tournament, ...
 Improve fwhelper
+Port to netfilter when linux-2.4 is ready
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000402
+Date: 20000421
 Author: raf <raf2@zip.com.au>
 

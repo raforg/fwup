@@ -28,17 +28,14 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000402 raf <raf2@zip.com.au>
+# 20000421 raf <raf2@zip.com.au>
 
-# Source function library
-[ -e /etc/rc.d/init.d/functions ] || exit 1
-. /etc/rc.d/init.d/functions
+# Source networking configuration (if redhat)
 
-# Source networking configuration
-[ -e /etc/sysconfig/network ] || exit 1
-. /etc/sysconfig/network
+[ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
 
-# Check that networking is required
+# Check that networking is required (if redhat)
+
 [ "$NETWORKING" = "no" ] && exit 0
 
 # Names of the files we will need
@@ -58,7 +55,7 @@ case "$1" in
 
 		if [ ! -x $fwup ]
 		then
-			echo "$0: failed to find $fwup" >&2
+			echo "$0: failed to find executable $fwup" >&2
 			exit 1
 		fi
 
@@ -74,7 +71,7 @@ case "$1" in
 
 		if [ ! -x $fwdown ]
 		then
-			echo "$0: failed to find $fwdown" >&2
+			echo "$0: failed to find executable $fwdown" >&2
 			exit 1
 		fi
 
@@ -88,11 +85,35 @@ case "$1" in
 	probe)
 		if [ ! -x /sbin/ipchains ]
 		then
-			echo "$0: failed to find /sbin/ipchains" >&2
+			echo "$0: failed to find executable /sbin/ipchains" >&2
 			exit 1
 		fi
 
-		/sbin/ipchains -L -v -n | /bin/more
+		(
+			echo ipchains -L -v -n
+			echo ~~~~~~~~~~~~~~~~~
+			/sbin/ipchains -L -v -n
+
+			if [ -x /usr/sbin/ipmasqadm ]
+			then
+				echo
+				echo ipmasqadm portfw -l -n
+				echo ~~~~~~~~~~~~~~~~~~~~~~
+				/usr/sbin/ipmasqadm portfw -l -n
+			fi
+
+			if [ -x /sbin/ip ]
+			then
+				echo
+				echo ip rule show
+				echo ~~~~~~~~~~~~
+				/sbin/ip rule show
+				echo
+				echo ip route show
+				echo ~~~~~~~~~~~~~
+				/sbin/ip route show
+			fi
+		) | /bin/more
 		;;
 
 	restart)

@@ -78,10 +78,10 @@
 # forwarding). The next release will also support M:N NAPT.
 
 # Packets on trusted interfaces will be accepted (e.g. eth0 lo)
-TRUSTED_INTERFACES="lo"
+TRUSTED_INTERFACES="eth0 lo"
 
 # Packets on untrusted interfaces will be filtered (e.g. ppp0)
-UNTRUSTED_INTERFACES=""
+UNTRUSTED_INTERFACES="ppp0"
 
 # Identify the internal networks for use in spoof protection and masquerading.
 # Note: By default, fwup will use the addresses and network masks of the
@@ -91,7 +91,7 @@ UNTRUSTED_INTERFACES=""
 # explicitly. You also need to identify internal networks explicitly if
 # masquerading and there are multiple untrusted interfaces, otherwise, fwup
 # will masquerade packets forwarded across internal, untrusted interfaces.
-# INTERNAL_NETWORKS=""
+INTERNAL_NETWORKS="10.0.0.0/24"
 
 # State which untrusted interfaces are connected to internal networks. This
 # prevents spoof protection from occurring on that interface. Otherwise,
@@ -132,7 +132,14 @@ UNTRUSTED_INTERFACES=""
 # Note: This is a good place to define TARGET variables (see Service Policy).
 #
 
-# FORWARDING="no"
+FORWARDING="yes"
+
+TARGET_http="10.0.0.2/32"
+TARGET_smtp="10.0.0.3/32"
+TARGET_ssh="10.0.0.4/32"
+TARGET_dns="10.0.0.5/32"
+TARGET_lotus="10.0.0.6/32"
+TARGET_all="10.0.0.0/24"
 
 ##############################################################################
 # Masquerading (outgoing M:1 NAT)
@@ -336,7 +343,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/53, udp/53
 
-# SERVICES="$SERVICES icdns"
+SERVICES="$SERVICES icdns.dns" # Only the dns target can receive DNS queries
 
 # List of hosts which may connect to this host's DNS server.
 # Blank means all hosts.
@@ -373,7 +380,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/53 udp/53
 
-# SERVICES="$SERVICES isdns"
+SERVICES="$SERVICES isdns.dns" # Only the dns target can receive DNS queries
 
 # List of DNS server hosts which may connect to this host's DNS server.
 # Blank means all hosts.
@@ -390,11 +397,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/53,61000-65096 udp/53,61000-65096
 
-# SERVICES="$SERVICES osdns"
+SERVICES="$SERVICES osdns.dns" # Only the dns target can send DNS queries.
 
 # List of DNS server hosts to which this networks DNS servers may connect.
 # Blank means no hosts.
-# OSDNS_SERVERS=""
+OSDNS_SERVERS="222.222.222.2/32 222.222.223.3/32"
 
 ##############################################################################
 # Incoming SMTP
@@ -404,7 +411,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/25
 
-# SERVICES="$SERVICES ismtp"
+SERVICES="$SERVICES ismtp.smtp" # Only the smtp target can receive mail
 
 # List of hosts which may connect to this host's SMTP server.
 # Blank means all hosts.
@@ -418,7 +425,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osmtp"
+SERVICES="$SERVICES osmtp.smtp" # Only the smtp target can send mail
 
 # List of SMTP servers to which this network may connect.
 # Blank means all hosts.
@@ -449,7 +456,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES opop"
+SERVICES="$SERVICES opop.all" # The lan can use POP
 
 # List of POP servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -489,7 +496,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oimap"
+SERVICES="$SERVICES oimap.all" # The lan can use IMAP
 
 # List of IMAP servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -520,7 +527,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oldap"
+SERVICES="$SERVICES oldap.all" # The lan can use LDAP
 
 # List of LDAP servers to which this network may connect.
 # Blank means all hosts.
@@ -542,7 +549,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ospop"
+SERVICES="$SERVICES ospop.all" # The lan can use SSL-POP
 
 # List of SSL-POP servers to which this network may connect.
 # Blank means all hosts.
@@ -564,7 +571,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osimap"
+SERVICES="$SERVICES osimap.all" # The lan can use SSL-IMAP
 
 # List of SSL-IMAP servers to which this network may connect.
 # Blank means all hosts.
@@ -586,7 +593,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osldap"
+SERVICES="$SERVICES osldap.all" # The lan can use SSL-LDAP
 
 # List of SSL-LDAP servers to which this network may connect.
 # Blank means all hosts.
@@ -600,7 +607,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/22
 
-# SERVICES="$SERVICES issh1"
+SERVICES="$SERVICES issh1.ssh" # Only the ssh target can receive SSH1 connections
 
 # List of hosts which may connect to this host's SSH1 server.
 # Blank means all hosts.
@@ -614,7 +621,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/513-1023,61000-65096
 
-# SERVICES="$SERVICES ossh1"
+SERVICES="$SERVICES ossh1.all" # The lan can use SSH1
 
 # List of SSH1 servers to which this network may connect.
 # Blank means all hosts.
@@ -686,7 +693,7 @@ UNTRUSTED_INTERFACES=""
 # Open (passive): tcp(ack)/1024-4999,61000-65096
 
 # SERVICES="$SERVICES onftp"
-# SERVICES="$SERVICES opftp"
+SERVICES="$SERVICES opftp.all" # The lan can use passive FTP
 
 # List of non-anonymous FTP servers to which this network may not connect
 # (to prevent plaintext password transmission).
@@ -721,7 +728,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oteln"
+SERVICES="$SERVICES oteln.all" # The lan can use TELNET
 
 # List of TELNET servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -739,7 +746,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/80
 
-# SERVICES="$SERVICES ihttp"
+SERVICES="$SERVICES ihttp.http" # Only the http target can receive HTTP connections
 
 # Allowable HTTP server port numbers for this host.
 # Blank means no ports.
@@ -757,7 +764,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ohttp"
+SERVICES="$SERVICES ohttp.all" # The lan can use HTTP
 
 # Allowable port numbers for external HTTP servers (this is stupid, use a proxy).
 # Blank means all ports.
@@ -770,7 +777,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/443
 
-# SERVICES="$SERVICES ihttps"
+SERVICES="$SERVICES ihttps.http" # Only the http target can reveive HTTPS connections
 
 # Allowable HTTPS port numbers for this host.
 # Blank means no ports.
@@ -788,7 +795,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ohttps"
+SERVICES="$SERVICES ohttps.all" # The lan can use HTTPS
 
 # Allowable port numbers for external HTTPS servers (this is stupid, use a proxy)
 # Blank means all ports.
@@ -1091,11 +1098,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: udp/123,1024-4999,61000-65096
 
-# SERVICES="$SERVICES ontp"
+SERVICES="$SERVICES ontp" # Only this host can use NTP
 
 # List of NTP servers to which this network may connect.
 # Blank means no hosts.
-# NTP_SERVERS=""
+NTP_SERVERS="222.222.222.5/32"
 
 ##############################################################################
 # Incoming GOPHER
@@ -1192,7 +1199,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ofing"
+SERVICES="$SERVICES ofing.all" # The lan can use FINGER
 
 # List of FINGER servers to which this network may connect.
 # Blank means all hosts.
@@ -1206,7 +1213,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES owhois"
+SERVICES="$SERVICES owhois.all" # The lan can use WHOIS
 
 # List of WHOIS servers to which this network may connect.
 # Blank means all hosts.
@@ -1236,7 +1243,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oauth"
+SERVICES="$SERVICES oauth oauth.all" # This host and the lan can use AUTH
 
 # List of AUTH servers to which this network may connect.
 # Blank means all hosts.
@@ -1250,7 +1257,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/1352
 
-# SERVICES="$SERVICES inotes"
+SERVICES="$SERVICES inotes.lotus" # Only the lotus target can receive NOTES connections
 
 # List of hosts which may connect to this host's NOTES server.
 # Blank means all hosts.
@@ -1264,7 +1271,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES onotes"
+SERVICES="$SERVICES onotes.lotus" # Only the lotus target can use NOTES
 
 # List of NOTES servers to which this network may connect.
 # Blank means all hosts.
@@ -1545,7 +1552,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: icmp/echo-reply
 
-# SERVICES="$SERVICES oping"
+SERVICES="$SERVICES oping oping.all" # This host and the lan can use PING
 
 # List of hosts that this network may ping.
 # Blank means all hosts.
@@ -1582,7 +1589,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: icmp/time-exceeded,destination-unreachable
 
-# SERVICES="$SERVICES otrace"
+SERVICES="$SERVICES otrace otrace.all" # This host and the lan can use TRACEROUTE
 
 # List of hosts that this network may trace.
 # Blank means all hosts.

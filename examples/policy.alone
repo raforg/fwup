@@ -81,7 +81,7 @@
 TRUSTED_INTERFACES="lo"
 
 # Packets on untrusted interfaces will be filtered (e.g. ppp0)
-UNTRUSTED_INTERFACES=""
+UNTRUSTED_INTERFACES="ppp0"
 
 # Identify the internal networks for use in spoof protection and masquerading.
 # Note: By default, fwup will use the addresses and network masks of the
@@ -91,7 +91,7 @@ UNTRUSTED_INTERFACES=""
 # explicitly. You also need to identify internal networks explicitly if
 # masquerading and there are multiple untrusted interfaces, otherwise, fwup
 # will masquerade packets forwarded across internal, untrusted interfaces.
-# INTERNAL_NETWORKS=""
+INTERNAL_NETWORKS="10.0.0.0/24"
 
 # State which untrusted interfaces are connected to internal networks. This
 # prevents spoof protection from occurring on that interface. Otherwise,
@@ -260,7 +260,7 @@ UNTRUSTED_INTERFACES=""
 # if this is not a multi-homed host or router. It tells the kernel to fix
 # the source address of your packets if some software got it wrong by using
 # a previous address, say. This sort of behaviour can break a router.
-# IPV4_DYNADDR="no"
+IPV4_DYNADDR="yes"
 
 ##############################################################################
 # Paranoia
@@ -390,11 +390,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/53,61000-65096 udp/53,61000-65096
 
-# SERVICES="$SERVICES osdns"
+SERVICES="$SERVICES osdns"
 
 # List of DNS server hosts to which this networks DNS servers may connect.
 # Blank means no hosts.
-# OSDNS_SERVERS=""
+OSDNS_SERVERS="222.222.222.2/32 222.222.223.3/32"
 
 ##############################################################################
 # Incoming SMTP
@@ -418,11 +418,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osmtp"
+SERVICES="$SERVICES osmtp"
 
 # List of SMTP servers to which this network may connect.
 # Blank means all hosts.
-# SMTP_SERVERS=""
+SMTP_SERVERS="222.222.222.3/32"
 
 ##############################################################################
 # Incoming POP
@@ -449,7 +449,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES opop"
+SERVICES="$SERVICES opop"
 
 # List of POP servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -489,7 +489,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oimap"
+SERVICES="$SERVICES oimap"
 
 # List of IMAP servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -520,7 +520,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oldap"
+SERVICES="$SERVICES oldap"
 
 # List of LDAP servers to which this network may connect.
 # Blank means all hosts.
@@ -542,7 +542,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ospop"
+SERVICES="$SERVICES ospop"
 
 # List of SSL-POP servers to which this network may connect.
 # Blank means all hosts.
@@ -564,7 +564,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osimap"
+SERVICES="$SERVICES osimap"
 
 # List of SSL-IMAP servers to which this network may connect.
 # Blank means all hosts.
@@ -586,7 +586,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES osldap"
+SERVICES="$SERVICES osldap"
 
 # List of SSL-LDAP servers to which this network may connect.
 # Blank means all hosts.
@@ -600,7 +600,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/22
 
-# SERVICES="$SERVICES issh1"
+SERVICES="$SERVICES issh1"
 
 # List of hosts which may connect to this host's SSH1 server.
 # Blank means all hosts.
@@ -614,7 +614,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/513-1023,61000-65096
 
-# SERVICES="$SERVICES ossh1"
+SERVICES="$SERVICES ossh1"
 
 # List of SSH1 servers to which this network may connect.
 # Blank means all hosts.
@@ -686,7 +686,7 @@ UNTRUSTED_INTERFACES=""
 # Open (passive): tcp(ack)/1024-4999,61000-65096
 
 # SERVICES="$SERVICES onftp"
-# SERVICES="$SERVICES opftp"
+SERVICES="$SERVICES opftp"
 
 # List of non-anonymous FTP servers to which this network may not connect
 # (to prevent plaintext password transmission).
@@ -721,7 +721,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oteln"
+SERVICES="$SERVICES oteln"
 
 # List of TELNET servers to which this network may not connect (to prevent
 # plaintext password transmission).
@@ -757,7 +757,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ohttp"
+SERVICES="$SERVICES ohttp"
 
 # Allowable port numbers for external HTTP servers (this is stupid, use a proxy).
 # Blank means all ports.
@@ -788,7 +788,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ohttps"
+SERVICES="$SERVICES ohttps"
 
 # Allowable port numbers for external HTTPS servers (this is stupid, use a proxy)
 # Blank means all ports.
@@ -851,11 +851,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES onntp"
+SERVICES="$SERVICES onntp"
 
 # List of NNTP servers to which this network may connect.
 # Blank means no hosts.
-# NNTP_SERVERS=""
+NNTP_SERVERS="222.222.222.4/32"
 
 ##############################################################################
 # Incoming RSYNC
@@ -1006,7 +1006,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oirc"
+SERVICES="$SERVICES oirc"
 
 # List of IRC servers to which this network may connect.
 # Blank means all hosts.
@@ -1091,11 +1091,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: udp/123,1024-4999,61000-65096
 
-# SERVICES="$SERVICES ontp"
+SERVICES="$SERVICES ontp"
 
 # List of NTP servers to which this network may connect.
 # Blank means no hosts.
-# NTP_SERVERS=""
+NTP_SERVERS="222.222.222.5/32"
 
 ##############################################################################
 # Incoming GOPHER
@@ -1192,7 +1192,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES ofing"
+SERVICES="$SERVICES ofing"
 
 # List of FINGER servers to which this network may connect.
 # Blank means all hosts.
@@ -1206,7 +1206,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES owhois"
+SERVICES="$SERVICES owhois"
 
 # List of WHOIS servers to which this network may connect.
 # Blank means all hosts.
@@ -1222,11 +1222,11 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp/113
 
-# SERVICES="$SERVICES iauth"
+SERVICES="$SERVICES iauth"
 
 # List of hosts which may connect to this host's AUTH server.
 # Blank means all hosts.
-# AUTH_CLIENTS=""
+AUTH_CLIENTS="$SMTP_SERVERS"
 
 ##############################################################################
 # Outgoing AUTH
@@ -1236,7 +1236,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-# SERVICES="$SERVICES oauth"
+SERVICES="$SERVICES oauth"
 
 # List of AUTH servers to which this network may connect.
 # Blank means all hosts.
@@ -1545,7 +1545,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: icmp/echo-reply
 
-# SERVICES="$SERVICES oping"
+SERVICES="$SERVICES oping"
 
 # List of hosts that this network may ping.
 # Blank means all hosts.
@@ -1582,7 +1582,7 @@ UNTRUSTED_INTERFACES=""
 #
 # Open: icmp/time-exceeded,destination-unreachable
 
-# SERVICES="$SERVICES otrace"
+SERVICES="$SERVICES otrace"
 
 # List of hosts that this network may trace.
 # Blank means all hosts.

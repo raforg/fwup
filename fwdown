@@ -25,7 +25,14 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20000402 raf <raf2@zip.com.au>
+# 20000421 raf <raf2@zip.com.au>
+
+##############################################################################
+# Usage: [policy=filename] fwdown
+#
+# The policy variable determines the policy file to implement.
+# It is /etc/firewall.policy by default.
+#
 
 ##############################################################################
 # Start by checking that we've got everything we need
@@ -33,7 +40,7 @@
 
 # Set the path explicitly
 
-PATH=/sbin:/bin:/usr/bin
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 # Source the function library
 
@@ -41,28 +48,17 @@ if [ -r /etc/rc.d/init.d/functions ]
 then
 	. /etc/rc.d/init.d/functions
 else
-	#echo "$0: failed to find /etc/rc.d/init.f/functions" >&2
-	#exit 1
-
 	# Define a crappy version of redhat's action function.
-
-	action() {
-	  msg=$1
-	  shift
-	  echo -n "$msg "
+	action()
+	{
+	  echo -n "$1 "; shift
 	  $* && echo "[ OK ]" || echo "[ FAILED ]"
 	}
 fi
 
-# Source the network configuration
+# Source the network configuration (if redhat)
 
-if [ -r /etc/sysconfig/network ]
-then
-	. /etc/sysconfig/network
-#else
-	#echo "$0: failed to find /etc/sysconfig/network" >&2
-	#exit 1
-fi
+[ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
 
 # Check that networking is required
 
@@ -72,9 +68,50 @@ fi
 
 if [ ! -x /sbin/ipchains ]
 then
-	echo "$0: failed to find /sbin/ipchains" >&2
+	echo "$0: failed to find executable /sbin/ipchains" >&2
 	exit 1
 fi
+
+# Check that ip is available if static NAT
+
+case "$STATIC_NAT" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		echo "$0: STATIC_NAT is not yet implemented" >&2
+		exit 1
+		if [ ! -x /sbin/ip ]
+		then
+			echo "$0: failed to find executable /sbin/ip (required for static NAT)" >&2
+			exit 1
+		fi
+		;;
+esac
+
+# Check that ip is available if alias masquerading
+
+case "$ALIAS_MASQUERADING" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		echo "$0: ALIAS_MASQUERADING is not yet implemented" >&2
+		exit 1
+		if [ ! -x /sbin/ip ]
+		then
+			echo "$0: failed to find executable /sbin/ip (required for alias masquerading)" >&2
+			exit 1
+		fi
+		PORT_FORWARDING="yes"
+		;;
+esac
+
+# Check that ipmasqadm is available if port forwarding or alias masquerading
+
+case "$PORT_FORWARDING" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		if [ ! -x /usr/sbin/ipmasqadm ]
+		then
+			echo "$0: failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)" >&2
+			exit 1
+		fi
+		;;
+esac
 
 # Check that the policy file is available
 
@@ -82,7 +119,7 @@ fi
 
 if [ ! -r $policy ]
 then
-	echo "$0: failed to find $policy" >&2
+	echo "$0: failed to find readable $policy" >&2
 	exit 1
 fi
 
@@ -90,30 +127,67 @@ fi
 
 . $policy
 
-# Stop IP Packet Forwarding
+##############################################################################
+# Stop IP Port Forwarding
+#
 
-ipv4=/proc/sys/net/ipv4
-
-case "$MASQUERADE" in
+case "$PORT_FORWARDING" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
-		case "$FORWARD_IPV4" in
-			[Nn]o|[Ff]alse|[Oo]ff|0)
-				;;
-			*)
-				echo -n "Stopping IP Packet Forwarding"
-				if [ -w $ipv4/ip_forward ]
-				then
-					echo 0 > $ipv4/ip_forward
-					action "" true
-				else
-					action "" false
-				fi
-				;;
-		esac
+		action "Stopping IP Port Forwarding" ipmasqadm portfw -f
 		;;
 esac
 
+##############################################################################
+# Stop IP Packet Forwarding
+#
+
+ipv4=/proc/sys/net/ipv4
+
+# Do we need to stop forwarding?
+
+stop_forwarding="0"
+
+case "$FORWARDING" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		stop_forwarding="1"
+		;;
+esac
+
+case "$MASQUERADING" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		stop_forwarding="1"
+		;;
+esac
+
+case "$STATIC_NAT" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		stop_forwarding="1"
+		;;
+esac
+
+# Don't override /etc/sysconfig/network (if redhat)
+
+case "$IPV4_FORWARD" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		stop_forwarding="0"
+		;;
+esac
+
+if [ "$stop_forwarding" = "1" ]
+then
+	echo -n "Stopping IP Packet Forwarding"
+	if [ -w $ipv4/ip_forward ]
+	then
+		echo 0 > $ipv4/ip_forward
+		action "" true
+	else
+		action "" false
+	fi
+fi
+
+##############################################################################
 # Stop Dynamic IP Address Hacking in IP MASQ
+#
 
 case "$IPV4_DYNADDR" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
@@ -128,7 +202,9 @@ case "$IPV4_DYNADDR" in
 		;;
 esac
 
+##############################################################################
 # Stop IP Martian Logging
+#
 
 case "$IPV4_LOG_MARTIANS" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -148,7 +224,9 @@ case "$IPV4_LOG_MARTIANS" in
 		;;
 esac
 
+##############################################################################
 # Stop IP Bogus Error Response Protection
+#
 
 case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -165,7 +243,9 @@ case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP ICMP Broadcast Echo Protection
+#
 
 case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -182,7 +262,9 @@ case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP Fragment Protection
+#
 
 case "$IPV4_FRAGMENT_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -199,7 +281,9 @@ case "$IPV4_FRAGMENT_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP TCP SYN Cookie Protection
+#
 
 case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -216,7 +300,9 @@ case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP ICMP Redirect Protection
+#
 
 case "$IPV4_ICMP_REDIRECT_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -236,7 +322,9 @@ case "$IPV4_ICMP_REDIRECT_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP Source Routing Protection
+#
 
 case "$IPV4_SOURCE_ROUTE_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -256,7 +344,9 @@ case "$IPV4_SOURCE_ROUTE_PROTECT" in
 		;;
 esac
 
+##############################################################################
 # Stop IP Source Address Verification
+#
 
 case "$IPV4_SPOOF_PROTECT" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -276,7 +366,40 @@ case "$IPV4_SPOOF_PROTECT" in
 		;;
 esac
 
+##############################################################################
+# Unload IP Masquerading Modules
+#
+
+case "$MASQUERADING" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
+		then
+			echo -n "Unloading IP Masquerading Modules"
+			loaded="0"
+			unloaded="0"
+
+			for module in $MASQ_MODULES
+			do
+				if grep ip_masq_$module /proc/modules >/dev/null
+				then
+					loaded="`expr $loaded + 1`"
+					rmmod ip_masq_$module && unloaded="`expr $unloaded + 1`"
+				fi
+			done
+
+			if [ "$loaded" != "$unloaded" ]
+			then
+				action ": $unloaded/$loaded modules unloaded" /bin/false
+			else
+				action "" /bin/true
+			fi
+		fi
+		;;
+esac
+
+##############################################################################
 # Stop IP Packet Filter
+#
 
 echo -n "Stopping IP Packet Filter"
 

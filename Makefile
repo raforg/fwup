@@ -20,7 +20,7 @@
 #
 
 # Install the firewall scripts
-# 20000402 raf <raf2@zip.com.au>
+# 20000421 raf <raf2@zip.com.au>
 
 help:
 	@echo "This Makefile supports the following targets"
@@ -59,15 +59,15 @@ dist: MANIFEST
 	dst=firewall-`date +%Y%m%d`; \
 	cd ..; \
 	test "$$src" != "$$dst" -a ! -e "$$dst" && ln -s $$src $$dst; \
-	tar chzf $$dst.tar.gz $$dst/[RMfd]*; \
+	tar chzf $$dst.tar.gz $$dst/[RMf]* $$dst/examples/* $$dst/tools/*; \
 	test -L "$$dst" && rm -f $$dst; \
 	rm -f $$src/MANIFEST; \
 	tar tzf $$dst.tar.gz
 
 MANIFEST:
-	@find . -name '[RMfd]*' > MANIFEST
+	@(ls -1 [RMf]* examples/* tools/*) > MANIFEST
 
 decent:
-	@perl -pi -e 's/EVIL/EXTREMELY_DANGEROUS/g' fwup firewall.policy
+	@perl -pi -e 's/EVIL/EXTREMELY_DANGEROUS/g' fwup firewall.policy examples/*
 
 # vi:set ts=4 sw=4:
