@@ -1,10 +1,9 @@
 #!/usr/bin/perl -w
 use strict;
 
+# fwup - http://fwup.org/
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall/
-#
-# Copyright (C) 1999 raf <raf2@zip.com.au>
+# Copyright (C) 1999 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +19,6 @@ use strict;
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 # or visit http://www.gnu.org/copyleft/gpl.html
-#
 
 =head1 NAME
 
@@ -131,7 +129,7 @@ while disconnected).
 
 =head1 AUTHOR
 
-19991231 raf <raf2@zip.com.au>
+19991231 raf <raf@raf.org>
 
 =cut
 

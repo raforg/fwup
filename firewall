@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# fwup - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000817 raf <raf2@zip.com.au>
+# 20000912 raf <raf@raf.org>
 
 # Source networking configuration (if redhat)
 
@@ -80,7 +80,7 @@ case "$1" in
 		;;
 
 	probe)
-		[ ! -x $ipchains ] && die "failed to find executable $ipchains"
+		[ ! -x $ipchains ] && die "Failed to find executable $ipchains"
 
 		echo ipchains -L -v -n
 		echo ~~~~~~~~~~~~~~~~~

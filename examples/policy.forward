@@ -1,7 +1,7 @@
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# fwup - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000817 raf <raf2@zip.com.au>
+# 20000912 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -194,6 +194,8 @@ TARGET_all="10.0.0.0/24"
 # MASQ_MODULES=""
 # e.g.
 # MASQ_MODULES="$MASQ_MODULES portfw"
+# MASQ_MODULES="$MASQ_MODULES mfw"
+# MASQ_MODULES="$MASQ_MODULES h323"
 # MASQ_MODULES="$MASQ_MODULES cuseeme"
 # MASQ_MODULES="$MASQ_MODULES ftp"
 # MASQ_MODULES="$MASQ_MODULES irc"
@@ -220,7 +222,7 @@ TARGET_all="10.0.0.0/24"
 # PORT_FORWARDING="no"
 
 # Specify (protocol, dstport, toaddr, toport, preference) tuples where
-# protocol and dstport identify the destination an incoming packet (the
+# protocol and dstport identify the destination of an incoming packet (the
 # destination address is implicitly that/those of the untrusted/external
 # interface(s)) and toaddr and toport specify the internal address and port
 # to which the packet is to be forwarded and preference is the preference
@@ -230,6 +232,19 @@ TARGET_all="10.0.0.0/24"
 
 # PORTFW=""
 # e.g. PORTFW="$PORTFW tcp 80 10.0.0.1 80 10"
+
+# If you need to port forward a range of ports without changing the port
+# number, specify (protocol, portrange, toaddr) tuples where protocol and
+# portrange identify the destination of an incoming packet (the destination
+# address in implicitly that of the untrusted/external interface) and toaddr
+# specifies the internal address to which the packet is to be forwarded.
+# The portrange must be of the form #:# where each # represents the lowest
+# and highest ports in the range, respectively. There is no preference since
+# this behaviour can only be useful when port forwarding to a single internal
+# host.
+
+# PORTRANGEFW=""
+# e.g. PORTRANGEFW="$PORTRANGEFW tcp 4000:4400 10.0.0.1"
 
 ##############################################################################
 # Alias Port Forwarding (outgoing M:1 NAPT and incoming M:N NAPT)
@@ -686,7 +701,7 @@ SERVICES="$SERVICES ossh1.all" # The lan can use SSH1
 
 # List of hosts which may connect to this host's SSH2 server.
 # Blank means all hosts.
-# SSH2_CLIENTS="$ZIPPER"
+# SSH2_CLIENTS=""
 
 ##############################################################################
 # Outgoing SSH2/LSH
@@ -700,7 +715,7 @@ SERVICES="$SERVICES ossh1.all" # The lan can use SSH1
 
 # List of SSH2 servers to which this network may connect.
 # Blank means all hosts.
-# SSH2_SERVERS="$ZIPPER"
+# SSH2_SERVERS=""
 
 ##############################################################################
 # Incoming Normal/Passive FTP
@@ -1155,8 +1170,8 @@ SERVICES="$SERVICES ohttps.all" # The lan can use HTTPS
 ##############################################################################
 # Outgoing RealAudio/QuickTime
 #
-# Note: You may need special kernel modules for this. This is a bad idea
-# since it leaves many udp ports open.
+# Note: You may need to load the radio masquerading module (see $MASQ_MODULES).
+# This is a bad idea since it leaves many udp ports open.
 #
 # Open: tcp(ack)/1024-4999,61000-65096 udp/6970-6999,61000-65096
 
@@ -1370,34 +1385,194 @@ SERVICES="$SERVICES onotes.lotus" # Only the lotus target can use NOTES
 # NOTES_SERVERS=""
 
 ##############################################################################
-# Incoming DIALPAD
+# Client DIALPAD
 #
-# Note: You only need this if you use the dialpad server (www.dialpad.com).
-# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
-# to the list of dialpad networks used below.
+# Note: You only need this if you use the internet telephony service provided
+# by www.dialpad.com. Check http://www.dialpad.com/support/helpsys.html#firewall
+# for updates to the list of dialpad networks used below.
 #
-# Open: tcp/51219,61000-65096, udp/51200-5120
+# Note: If your dialpad software runs on an mswin host (almost certainly)
+# and it's in a masqueraded network, you'll need to port forward
+# udp/51200:51201 and tcp/51210 to that host (see $PORTFW).
+#
+# Open: tcp(ack)/1024-4999,61000-65096, tcp/51210, udp/51200-51201
 
-# SERVICES="$SERVICES idial"
+# SERVICES="$SERVICES cdial"
 
-# List of hosts which may connect to this host's NOTES server.
-# Blank means no hosts.
-# DIALPAD_CLIENTS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24, 216.52.249.0/24"
+# List of hosts which may connect to this host's DIALPAD client.
+# Blank means all hosts.
+# DIALPAD_SERVERS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24 216.52.249.0/24"
+
+# e.g
+# PORTFW="$PORTFW tcp 51210 $target 51210 10"
+# PORTFW="$PORTFW udp 51200 $target 51200 10"
+# PORTFW="$PORTFW udp 51201 $target 51201 10"
 
 ##############################################################################
-# Outgoing DIALPAD
+# Client WEBPHONE
 #
-# Note: You only need this if you use the dialpad server (www.dialpad.com).
-# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
-# to the list of dialpad networks used below.
+# Note: You only need this if you use the internet telephony service provided
+# by the webphone software (www.webphone.com).
 #
-# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+# Note: If your webphone software runs on an mswin host (almost certainly) and
+# it's in a masqueraded network, you probably need to port forward tcp/21845
+# and udp/21845 to that host (see $PORTFW).
+#
+# Open: tcp(ack)/1024-499,61000-65096, tcp/21845, udp/21845
 
-# SERVICES="$SERVICES odial"
+# SERVICES="$SERVICES cwbfn"
 
-# List of NOTES servers to which this network may connect.
+# List of hosts which may communicate with local WEBPHONE software.
 # Blank means no hosts.
-# DIALPAD_SERVERS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24, 216.52.249.0/24"
+# WEBPHONE_PEERS=""
+
+# e.g.
+# PORTFW="$PORTFW tcp 21845 $target 21845 10"
+# PORTFW="$PORTFW udp 21845 $target 21845 10"
+
+##############################################################################
+# Client NET2PHONE
+#
+# Note: You only need this if you use the internet telephony service provided
+# by www.net2phone.com. There may be other sites that provide this service
+# using the same protocol.
+#
+# Note: If your net2phone client runs on an mswin host (almost certainly) and
+# it's in a masqueraded network, you probably need to port forward the ports
+# specified in $NET2PHONE_UDP_PORT and $NET2PHONE_TCP_PORT to that host
+# (see $PORTFW).
+#
+# Open: tcp(ack)/1024-4999,61000-65096, tcp/6802, udp/6801-6802
+
+# SERVICES="$SERVICES cnt2fn"
+
+# List of hosts which may communicate with the local NET2PHONE client.
+# Blank means no hosts.
+# NET2PHONE_PEERS=""
+
+# TCP/UDP port pair needed by NET2PHONE.
+# You must inform your NET2PHONE client software of these ports.
+# Blank means 6802 for both.
+# NET2PHONE_TCP_PORT=""
+# NET2PHONE_UDP_PORT=""
+
+# e.g.
+# PORTFW="$PORTFW tcp $NET2PHONE_TCP_PORT $target $NET2PHONE_TCP_PORT 10"
+# PORTFW="$PORTFW udp $NET2PHONE_UDP_PORT $target $NET2PHONE_UDP_PORT 10"
+
+##############################################################################
+# Client HOTTELEPHONE/WEB2CALL
+#
+# Note: You only need this if you use the internet telephony service provided
+# by www.hottelephone.com and www.web2call.com. There may be other sites that
+# provide this service using the same protocol.
+#
+# Note: If your hottelephone/web2call client runs on an mswin host (almost
+# certainly) and it's in a masqueraded network, you probably need to port
+# forward tcp/1720, udp/1717-1719 and the udp ports specified in $RTP_PORTS
+# to that host (see $PORTRANGEFW) and load the h323 masquerading module (see
+# $MASQ_MODULES).
+#
+# Note: Don't use this. It leaves far too many ports open. $RTP_PORTS
+# contains a port range starting at 4000 that contains either 400, 800,
+# 1200 or 1600 ports. So there will be at least 400 and up to 1600 ports
+# open! If you must use this service, only allow in on a victim host.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, tcp/1720, udp/1717-1719,4000-5600
+
+# SERVICES="$SERVICES chotel"
+
+# List of hosts which may communicate with the local HOTTELEPHONE client.
+# Blank means no hosts.
+# HOTTELEPHONE_PEERS=""
+
+# List of UDP ports to use for the RTP (Real Time Protocol).
+# Possible values are shown below.
+# Blank means 4000:4400.
+# RTP_PORTS="4000:4400" # For 1 E1
+# RTP_PORTS="4000:4800" # For 2 E1
+# RTP_PORTS="4000:5200" # For 3 E1
+# RTP_PORTS="4000:5600" # For 4 E1
+
+# e.g.
+# PORTFW="$PORTFW tcp 1720 $TARGET_phone 1720 10"
+# PORTFW="$PORTFW udp 1717 $TARGET_phone 1717 10"
+# PORTFW="$PORTFW udp 1718 $TARGET_phone 1718 10"
+# PORTFW="$PORTFW udp 1719 $TARGET_phone 1719 10"
+# PORTRANGEFW="$PORTRANGEFW udp $RTP_PORTS $TARGET_phone"
+
+##############################################################################
+# Incoming NETMEETING
+#
+# Note: Don't use this except on a victim host. This application is extremely
+# dangerous in that it can allow outsiders to exert control over your pc!!!
+#
+# Note: If you allow the audio/video conferencing features of netmeeting, it
+# will also require all unprivileged tcp and udp ports be open to incoming
+# connections!
+#
+# Note: If the host running netmeeting is in a masqueraded network and you
+# allow audio/video conferencing, you probably need to port forward all
+# unprivileged tcp and udp ports to the mswin host running netmeeting
+# (see $PORTRANGEFW) and load the h323 masquerading module (see $MASQ_MODULES).
+# Otherwise (when masquerading), only tcp/522,1503 need to be port forwarded
+# to the netmeeting host and the h323 module does not need to be loaded.
+#
+# Note: You might also need to allow incoming LDAP.
+#
+# Open (no A/V):   tcp/522,1503
+# Open (with A/V): tcp/1024-65535, udp/1024-65535
+
+# SERVICES="$SERVICES intmt"
+
+# Allow audio/video conferences and open all unprivileged tcp and udp ports?
+# INCOMING_NETMEETING_AUDIO_VISUAL_CONFERENCING="no"
+
+# List of hosts which may connect to the local netmeeting software.
+# Blank means no hosts.
+# NETMEETING_CLIENTS=""
+
+# e.g. (without audio/video conferencing)
+# PORTFW="$PORTFW tcp  522 $target  522 10"
+# PORTFW="$PORTFW tcp 1503 $target 1503 10"
+#
+# e.g. (with audio/video conferencing)
+# PORTRANGEFW="$PORTRANGEFW tcp 1024: $target"
+# PORTRANGEFW="$PORTRANGEFW udp 1024: $target"
+
+##############################################################################
+# Outgoing NETMEETING
+#
+# Note: Don't use this except on a victim host. This application is extremely
+# dangerous in that it can allow outsiders to exert control over your pc!!!
+#
+# Note: If you allow the audio/video conferencing features of netmeeting, it
+# will also require all unprivileged udp ports be open to incoming packets!
+#
+# Note: If the host running netmeeting is in a masqueraded network and you
+# allow audio/video conferencing, you probably need to port forward all
+# unprivileged udp ports to the mswin host running netmeeting (see
+# $PORTRANGEFW) and load the h323 masquerading module (see $MASQ_MODULES).
+# Otherwise no ports need to be port forwarded and the h323 module does not
+# need to be loaded.
+#
+# Note: You might also need to allow outgoing LDAP.
+#
+# Open (no A/V):   tcp(ack)/1024-4999,61000-65096
+# Open (with A/V): tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES ontmt"
+
+# Allow audio/video conferences and open all unprivileged udp ports?
+# OUTGOING_NETMEETING_AUDIO_VISUAL_CONFERENCING="no"
+
+# List of hosts to which the local netmeeting software may connect.
+# Blank means no hosts.
+# NETMEETING_SERVERS=""
+
+# e.g. (with audio/video conferencing)
+# PORTRANGEFW="$PORTRANGEFW tcp 1024: $target"
+# PORTRANGEFW="$PORTRANGEFW udp 1024: $target"
 
 ##############################################################################
 # Incoming SYSLOG

@@ -13,7 +13,7 @@ This allows ipchains to perform all of it's tasks in a single process
 instead of several hundred invocations of the same process so starting
 an ipchains packet filtering firewall can now be done instantaneously.
 
-Written by raf <raf2@zip.com.au>
+Written by raf <raf@raf.org>
 
 masq-demasq.patch
 ~~~~~~~~~~~~~~~~~

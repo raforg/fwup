@@ -1,9 +1,7 @@
 masq-demasq.patch
 ~~~~~~~~~~~~~~~~~
-This is a patch for linux-2.2.13 which makes port forwarding
-work when initiated from inside the masqueraded network(s).
+This is a patch for linux-2.2.13+ which makes port forwarding
+work when initiated inside masqueraded networks.
 
 Written by Michael Best <michael@com.org>
-
-Note: I haven't tested this - raf
 

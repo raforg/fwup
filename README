@@ -1,6 +1,6 @@
 README
 ~~~~~~
-firewall - Linux-2.2 ipchains firewall and NAT administration
+fwup - Linux-2.2 ipchains firewall and NAT administration
 
 This contains scripts that manage an ipchains firewall and various forms of
 network address and port translation. All you have to do is read the policy
@@ -115,8 +115,12 @@ Here is the list of currently supported services:
     oauth   - outgoing AUTH
     inotes  - incoming NOTES
     onotes  - outgoing NOTES
-    idial   - incoming DIALPAD
-    odial   - outgoing DIALPAD
+    cdial   - DIALPAD Client
+    cwbfn   - WEBPHONE Client
+    cnt2fn  - NET2PHONE Client
+    chotel  - HOTTELEPHONE/WEB2CALL Client
+    intmt   - Incoming NETMEETING
+    ontmt   - Outgoing NETMEETING
     ilog    - incoming SYSLOG
     olog    - outgoing SYSLOG
     sdhcp   - DHCP Server
@@ -153,8 +157,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20000817.tar.gz
-    cd firewall-20000817
+    tar xzf fwup-20000912.tar.gz
+    cd fwup-20000912
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -205,7 +209,7 @@ The patches directory contains two patches that you might find useful:
     instead of several hundred invocations of the same process so starting
     an ipchains packet filtering firewall can now be done instantaneously.
 
-    Written by raf <raf2@zip.com.au>
+    Written by raf <raf@raf.org>
 
     masq-demasq.patch
     ~~~~~~~~~~~~~~~~~
@@ -213,8 +217,6 @@ The patches directory contains two patches that you might find useful:
     work when initiated from inside the masqueraded network(s).
 
     Written by Michael Best <michael@com.org>
-
-    Note: I haven't tested this - raf
 
 REQUIREMENTS
 ~~~~~~~~~~~~
@@ -237,8 +239,8 @@ These can be found at:
 
 COPYING
 ~~~~~~~
-firewall - Linux-2.2 ipchains firewall and NAT administration
-Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
+fwup - Linux-2.2 ipchains firewall and NAPT/NAT administration
+Copyright (C) 1999, 2000 raf <raf@raf.org>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -354,24 +356,27 @@ HISTORY
     - Added SQUID
     - Added check to ensure that BLOCK{IN|OUT|FWD} are set to DENY or REJECT
     - Renamed portsummary to tuplegram and added icmp and udp support
+    - Fixed bug: make [un]install didn't work with recent version of bash
 
-20000817
+20000912
 
-    - Updated the ipchains URL in README
+    - Updated the ipchains url in README
     - Fixed the explanation why internally initiated port forwarding
       doesn't work (in the BUGS section below) thanks to Michael Best
-    - Added DIALPAD
+    - Added DIALPAD, WEBPHONE, NET2PHONE, HOTTELEPHONE/WEB2CALL, NETMEETING
+    - Added port range forwarding in $PORTRANGEFW
+    - Renamed project to fwup
 
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
 IPCHAINS-HOWTO by Paul Russell
 http://linux-firewall-tools.com by Robert L. Ziegler
-The ipchains mailing list. Particularly Yan Seiner and Mike A. Harris
+The ipchains mailing list. Particularly Yan Seiner, Mike Harris and Michael Best
 IP-Masquerade-HOWTO by David Ranch
 IP Command Reference by Alexey N. Kuznetsov
-PMfirewall (http://www.pointman.org) by Rick Johnson
-mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns
+PMfirewall (http://www.pointman.org) by Rick Johnson (installation)
+mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns (trojans)
 
 BUGS
 ~~~~
@@ -430,8 +435,10 @@ BUGS
   > I've put my patch at http://www.com.org/~michael/masq-demasq.zip
 
 - There is no support for static NAT between internal networks. Let me know
-  if this is a problem. This needs to be fixed. In the meantime, you can
+  if this is a problem. This needs to be fixed. In the meantime, you can just
   execute the necessary ip commands separately using priorities below 10000.
+
+- Port forwarding port ranges isn't supported when using Alias Port Forwarding.
 
 - Stopping the firewall stops packet forwarding in general. This is intentional.
   However, on Redhat systems with FORWARD_IPV4="yes" in /etc/sysconfig/network,
@@ -450,10 +457,11 @@ TODO
 More testing
 Add services: vpn, cuseeme, vdolive, quake, unreal tournament, ...
 Improve fwhelper
-Add support for netfilter/iptables when linux-2.4 is ready
+Add support for iptables when linux-2.4 is ready
+Add support for cisco routers
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000817
-Author: raf <raf2@zip.com.au>
+URL: http://fwup.org/
+Date: 20000912
+Author: raf <raf@raf.org>
 

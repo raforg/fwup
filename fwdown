@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# fwup - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20000817 raf <raf2@zip.com.au>
+# 20000912 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown
@@ -273,6 +273,84 @@ then
 fi
 
 ##############################################################################
+# Stop IP Packet Filter
+#
+
+do_stop_filter()
+{
+	# Stop Packet Filter
+
+	ipchains -F
+	ipchains -X
+	ipchains -P input ACCEPT
+	ipchains -P output ACCEPT
+	ipchains -P forward ACCEPT
+
+	# Stop Port Forwarding
+
+	yes "$PORT_FORWARDING" && ipmasqadm portfw -f
+
+	# Stop Alias Port Forwarding
+
+	if yes "$ALIAS_PORT_FORWARDING"
+	then
+		set $ALIAS_PORTFW
+		local fwmark=0
+		while [ $# != 0 ]
+		do
+			fwmark="`expr $fwmark + 1`"
+			local proto=$1 dstaddr=$2 dstport=$3 toaddr=$4 toport=$5 pref=$6
+			shift; shift; shift; shift; shift; shift
+
+			if [ -z "$proto" -o -z "$dstaddr" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" -o -z "$pref" ]
+			then
+				log -s "Invalid Alias Port Forwarding instruction: protocol=\"$proto\" dstaddr=\"$dstaddr\" dstport=\"$dstport\" toaddr=\"$toaddr\" toport=\"$toport\" preference=\"$pref\""
+				break
+			fi
+			ip rule delete from $toaddr fwmark $fwmark nat $dstaddr
+		done
+	fi
+
+	# Stop Static NAT
+
+	if yes "$STATIC_NAT"
+	then
+		set $NAT
+		while [ $# != 0 ]
+		do
+			local dstaddr=$1 toaddr=$2
+			shift; shift
+
+			if [ -z "$dstaddr" -o -z "$toaddr" ]
+			then
+				log -s "Invalid Static NAT instruction: dstaddr=\"$dstaddr\" toaddr=\"$toaddr\""
+				break
+			fi
+
+			ip route delete nat $dstaddr via $toaddr
+
+			for src in $INTERNAL_NETWORKS
+			do
+				for dst in $INTERNAL_NETWORKS
+				do
+					if [ "$src" != "$dst" ]
+					then
+						ip rule delete from $src to $dst lookup main
+					fi
+				done
+			done
+
+			local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+			[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
+			ip rule delete from $toaddr nat $base
+		done
+		ip route flush cache
+	fi
+}
+
+action "Stopping IP Packet Filter" do_stop_filter
+
+##############################################################################
 # Stop Dynamic IP Address Hacking in IP MASQ
 #
 
@@ -463,84 +541,6 @@ then
 		action "Unloading IP Masquerading Modules" do_unload_modules
 	fi
 fi
-
-##############################################################################
-# Stop IP Packet Filter
-#
-
-do_stop_filter()
-{
-	# Stop Packet Filter
-
-	ipchains -F
-	ipchains -X
-	ipchains -P input ACCEPT
-	ipchains -P output ACCEPT
-	ipchains -P forward ACCEPT
-
-	# Stop Port Forwarding
-
-	yes "$PORT_FORWARDING" && ipmasqadm portfw -f
-
-	# Stop Alias Port Forwarding
-
-	if yes "$ALIAS_PORT_FORWARDING"
-	then
-		set $ALIAS_PORTFW
-		local fwmark=0
-		while [ $# != 0 ]
-		do
-			fwmark="`expr $fwmark + 1`"
-			local proto=$1 dstaddr=$2 dstport=$3 toaddr=$4 toport=$5 pref=$6
-			shift; shift; shift; shift; shift; shift
-
-			if [ -z "$proto" -o -z "$dstaddr" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" -o -z "$pref" ]
-			then
-				log -s "Invalid Alias Port Forwarding instruction: protocol=\"$proto\" dstaddr=\"$dstaddr\" dstport=\"$dstport\" toaddr=\"$toaddr\" toport=\"$toport\" preference=\"$pref\""
-				break
-			fi
-			ip rule delete from $toaddr fwmark $fwmark nat $dstaddr
-		done
-	fi
-
-	# Stop Static NAT
-
-	if yes "$STATIC_NAT"
-	then
-		set $NAT
-		while [ $# != 0 ]
-		do
-			local dstaddr=$1 toaddr=$2
-			shift; shift
-
-			if [ -z "$dstaddr" -o -z "$toaddr" ]
-			then
-				log -s "Invalid Static NAT instruction: dstaddr=\"$dstaddr\" toaddr=\"$toaddr\""
-				break
-			fi
-
-			ip route delete nat $dstaddr via $toaddr
-
-			for src in $INTERNAL_NETWORKS
-			do
-				for dst in $INTERNAL_NETWORKS
-				do
-					if [ "$src" != "$dst" ]
-					then
-						ip rule delete from $src to $dst lookup main
-					fi
-				done
-			done
-
-			local base="${dstaddr%/*}" bits="${dstaddr#*/}"
-			[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
-			ip rule delete from $toaddr nat $base
-		done
-		ip route flush cache
-	fi
-}
-
-action "Stopping IP Packet Filter" do_stop_filter
 
 exit 0
 

@@ -1,7 +1,7 @@
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# fwup - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 
 # Makefile - Install the firewall scripts
 #
-# 20000817 raf <raf2@zip.com.au>
+# 20000912 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \
@@ -47,14 +47,14 @@ install:
 	[ -d /usr/local/sbin ] || mkdir /usr/local/sbin; \
 	install -m 744 fwup /usr/local/sbin || exit 1; \
 	install -m 744 fwdown /usr/local/sbin || exit 1; \
-	create() { if [ ! -f $$1 ]; then echo '#!/bin/sh' > $$1; echo >> $$1; chmod u+x $$1; fi }; \
-	reload() { create $$1; grep -q '/firewall reload' $$1 || echo "[ -x $$loc/firewall ] && $$loc/firewall reload" >> $$1 }; \
-	links() { for rc in $$1; do [ -x $$2/$$rc/$${3}firewall ] || ln -s ../init.d/firewall $$2/$$rc/$${3}firewall; done }; \
-	initd() { install -m 755 firewall $$loc && links "$(START)" $$1 S$(START_TIME) && links "$(STOP)" $$1 K$(STOP_TIME) }; \
-	dynamic() { if [ -z "$$UNTRUSTED_ADDRESSES" ]; then ppp; dhcp; fi }; \
-	rclocal() { install -m 755 firewall $$loc && reload $$1/rc.local }; \
-	ppp() { [ -d /etc/ppp ] && reload /etc/ppp/ip-up.local && reload /etc/ppp/ip-down.local }; \
-	dhcp() { if [ -d /etc/dhcpc ]; then for iface in $$UNTRUSTED_INTERFACES; do reload /etc/dhcpc/dhcpcd-$$iface.exe; done; fi }; \
+	create() { if [ ! -f $$1 ]; then echo '#!/bin/sh' > $$1; echo >> $$1; chmod u+x $$1; fi; }; \
+	reload() { create $$1; grep -q '/firewall reload' $$1 || echo "[ -x $$loc/firewall ] && $$loc/firewall reload" >> $$1; }; \
+	links() { for rc in $$1; do [ -x $$2/$$rc/$${3}firewall ] || ln -s ../init.d/firewall $$2/$$rc/$${3}firewall; done; }; \
+	initd() { install -m 755 firewall $$loc && links "$(START)" $$1 S$(START_TIME) && links "$(STOP)" $$1 K$(STOP_TIME); }; \
+	dynamic() { if [ -z "$$UNTRUSTED_ADDRESSES" ]; then ppp; dhcp; fi; }; \
+	rclocal() { install -m 755 firewall $$loc && reload $$1/rc.local; }; \
+	ppp() { [ -d /etc/ppp ] && reload /etc/ppp/ip-up.local && reload /etc/ppp/ip-down.local; }; \
+	dhcp() { if [ -d /etc/dhcpc ]; then for iface in $$UNTRUSTED_INTERFACES; do reload /etc/dhcpc/dhcpcd-$$iface.exe; done; fi; }; \
 	if [ -d /etc/rc.d/init.d ]; then loc=/etc/rc.d/init.d; initd /etc/rc.d; dynamic; \
 	elif [ -d /etc/init.d ]; then loc=/etc/init.d; initd /etc; dynamic; \
 	elif [ -x /etc/rc.d/rc.local ]; then loc=/etc; rclocal /etc/rc.d; dynamic; \
@@ -67,7 +67,7 @@ policy:
 
 uninstall:
 	@. ./firewall.policy; \
-	unmodify() { if [ -x $$1 ]; then grep -v '/firewall reload' $$1 > /tmp/fwun.$$$$; cat /tmp/fwun.$$$$ > $$1; rm -f /tmp/fwun.$$$$; fi }; \
+	unmodify() { if [ -x $$1 ]; then grep -v '/firewall reload' $$1 > /tmp/fwun.$$$$; cat /tmp/fwun.$$$$ > $$1; rm -f /tmp/fwun.$$$$; fi; }; \
 	rm -f /etc/rc.d/init.d/firewall /etc/init.d/firewall /etc/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall /etc/rc?.d/[SK][0-9][0-9]firewall; \
 	for modified in /etc/rc.d/rc.local /etc/rc.local /etc/ppp/ip-up.local /etc/ppp/ip-down.local /etc/dhcpc/dhcpcd-*.exe; do unmodify $$modified; done
 
@@ -87,7 +87,7 @@ MANIFEST:
 
 dist: MANIFEST
 	@src=`basename \`pwd\``; \
-	dst=firewall-`date +%Y%m%d`; \
+	dst=fwup-`date +%Y%m%d`; \
 	cd ..; \
 	test "$$src" != "$$dst" -a ! -e "$$dst" && ln -s $$src $$dst; \
 	tar chzf $$dst.tar.gz $$dst/[RMf]* $$dst/examples/* $$dst/tools/* $$dst/patches/*; \
