@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown
@@ -55,6 +55,12 @@ log()
 {
 	[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
 	logger -t "$PROG_NAME" -p daemon.notice $*
+}
+
+die()
+{
+	log -s $*
+	exit 1
 }
 
 success()
@@ -91,86 +97,153 @@ action()
 	$* && success "$msg" || failure "$msg"
 }
 
+not()
+{
+	"$@" && return 1 || return 0
+}
+
+yes()
+{
+	case "$1" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+no()
+{
+	case "$1" in
+		[Nn]o|[Ff]alse|[Oo]ff|0)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 # Source the network configuration (if redhat)
 
 [ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
 
-# Check that networking is required
+# Check that networking is required (if redhat)
 
 [ "$NETWORKING" = "no" ] && exit 0
 
 # Check that ipchains is available
 
-if [ ! -x /sbin/ipchains ]
-then
-	log -s "failed to find executable /sbin/ipchains"
-	exit 1
-fi
-
-# Check that ip is available if static NAT
-
-case "$STATIC_NAT" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		log -s "STATIC_NAT is not yet implemented"
-		exit 1
-		if [ ! -x /sbin/ip ]
-		then
-			log -s "failed to find executable /sbin/ip (required for static NAT)"
-			exit 1
-		fi
-		;;
-esac
-
-# Check that ip is available if alias masquerading
-
-case "$ALIAS_MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		log -s "ALIAS_MASQUERADING is not yet implemented"
-		exit 1
-		if [ ! -x /sbin/ip ]
-		then
-			log -s "failed to find executable /sbin/ip (required for alias masquerading)"
-			exit 1
-		fi
-		PORT_FORWARDING="yes"
-		;;
-esac
-
-# Check that ipmasqadm is available if port forwarding or alias masquerading
-
-case "$PORT_FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ ! -x /usr/sbin/ipmasqadm ]
-		then
-			log -s "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
-			exit 1
-		fi
-		;;
-esac
+[ ! -x /sbin/ipchains ] && die "failed to find executable /sbin/ipchains"
 
 # Check that the policy file is available
 
 [ -z "$policy" ] && policy=/etc/firewall.policy
 
-if [ ! -r $policy ]
-then
-	log -s "failed to find readable $policy"
-	exit 1
-fi
+[ ! -r $policy ] && die "failed to find readable $policy"
+
+##############################################################################
+# Load the IP packet filtering policy and check it
+#
 
 # Source the policy file
 
 . $policy
 
+# Check that $TRUSTED_INTERFACES is defined (at least lo)
+
+[ -z "$TRUSTED_INTERFACES" ] && die "\$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")"
+
+# If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
+
+[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | awk '
+
+	# Print the addresses and network masks of the internal interfaces (not lo)
+
+	BEGIN {
+
+		# Receive input one interface at a time, not one line at a time
+		RS="";
+
+		# Build a dictionary of internal interfaces to look for (exclude lo)
+		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+		for (i in ifaces)
+			if (ifaces[i] != "lo")
+				internal[ifaces[i]] = 1;
+	}
+
+	{
+		# All records but the first have $1 == "\0" for some reason
+		iface = ($1 != "\0") ? $1 : $2;
+
+		# Identify the real device for aliases
+		if ((colon = index(iface, ":")) != 0)
+			iface = substr(iface, 0, colon - 1);
+
+		# Skip interfaces that we are not interested in
+		if (internal[iface] == "")
+			next;
+
+		# Print the network pattern of this interface for ipchains
+		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+			next;
+
+		addr = substr($0, RSTART + 10, RLENGTH - 10);
+
+		if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+			next;
+
+		mask = substr($0, RSTART + 5, RLENGTH - 5);
+
+		print addr "/" mask;
+	}
+
+' list="$TRUSTED_INTERFACES"`"
+
+# Check that ip is available if static NAT
+
+yes "$STATIC_NAT" && [ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for static NAT)"
+
+# Check that ip is available if alias port porwarding
+
+if yes "$ALIAS_PORT_FORWARDING"
+then
+	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for alias port porwarding)"
+	PORT_FORWARDING="yes"
+fi
+
+# Check that ipmasqadm is available if port forwarding or alias port porwarding
+
+yes "$PORT_FORWARDING" && [ ! -x /usr/sbin/ipmasqadm ] && die "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
+
 ##############################################################################
-# Stop IP Port Forwarding
+# Debugging
 #
 
-case "$PORT_FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		action "Stopping IP Port Forwarding" ipmasqadm portfw -f
-		;;
-esac
+dbg()
+{
+	[ -n "$fwdebug" ] && [ "$fwdebug" -gt 0 ]
+}
+
+ipchains()
+{
+	dbg && echo ipchains $* >&2
+	/sbin/ipchains $*
+}
+
+ipmasqadm()
+{
+	dbg && echo ipmasqadm $* >&2
+	/usr/sbin/ipmasqadm $*
+}
+
+ip()
+{
+	dbg && echo ip $* >&2
+	/sbin/ip $*
+}
 
 ##############################################################################
 # Stop IP Packet Forwarding
@@ -181,32 +254,13 @@ ipv4=/proc/sys/net/ipv4
 # Do we need to stop forwarding?
 
 stop_forwarding="0"
-
-case "$FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		stop_forwarding="1"
-		;;
-esac
-
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		stop_forwarding="1"
-		;;
-esac
-
-case "$STATIC_NAT" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		stop_forwarding="1"
-		;;
-esac
+yes "$FORWARDING" && stop_forwarding="1"
+yes "$MASQUERADING" && stop_forwarding="1"
+yes "$STATIC_NAT" && stop_forwarding="1"
 
 # Don't override /etc/sysconfig/network (if redhat)
 
-case "$FORWARD_IPV4" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		stop_forwarding="0"
-		;;
-esac
+yes "$FORWARD_IPV4" && stop_forwarding="0"
 
 if [ "$stop_forwarding" = "1" ]
 then
@@ -222,205 +276,193 @@ fi
 # Stop Dynamic IP Address Hacking in IP MASQ
 #
 
-case "$IPV4_DYNADDR" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		do_stop_dynaddr()
-		{
-			[ -w $ipv4/ip_dynaddr ] && echo 0 > $ipv4/ip_dynaddr
-		}
+if yes "$IPV4_DYNADDR"
+then
+	do_stop_dynaddr()
+	{
+		[ -w $ipv4/ip_dynaddr ] && echo 0 > $ipv4/ip_dynaddr
+	}
 
-		action "Stopping Dynamic IP Address Hacking in IP MASQ" do_stop_dynaddr
-		;;
-esac
+	action "Stopping Dynamic IP Address Hacking in IP MASQ" do_stop_dynaddr
+fi
 
 ##############################################################################
 # Stop IP Martian Logging
 #
 
-case "$IPV4_LOG_MARTIANS" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_martian()
-		{
-			if [ -w $ipv4/conf/all/log_martians ]
-			then
-				for procfile in $ipv4/conf/*/log_martians
-				do
-					echo 0 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_LOG_MARTIANS"
+then
+	do_stop_martian()
+	{
+		if [ -w $ipv4/conf/all/log_martians ]
+		then
+			for procfile in $ipv4/conf/*/log_martians
+			do
+				echo 0 > $procfile
+			done
+		fi
+	}
 
-		action "Stopping IP Martian Logging" do_stop_martian
-		;;
-esac
+	action "Stopping IP Martian Logging" do_stop_martian
+fi
 
 ##############################################################################
 # Stop IP Bogus Error Response Protection
 #
 
-case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_bogus()
-		{
-			[ -w $ipv4/icmp_ignore_bogus_error_responses ] && echo 0 > $ipv4/icmp_ignore_bogus_error_responses
-		}
+if not no "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT"
+then
+	do_stop_bogus()
+	{
+		[ -w $ipv4/icmp_ignore_bogus_error_responses ] && echo 0 > $ipv4/icmp_ignore_bogus_error_responses
+	}
 
-		action "Stopping IP Bogus Error Response Protection" do_stop_bogus
-		;;
-esac
+	action "Stopping IP Bogus Error Response Protection" do_stop_bogus
+fi
 
 ##############################################################################
 # Stop IP ICMP Broadcast Echo Protection
 #
 
-case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_icmp()
-		{
-			[ -w $ipv4/icmp_echo_ignore_broadcasts ] && echo 0 > $ipv4/icmp_echo_ignore_broadcasts
-		}
+if not no "$IPV4_ICMP_BROADCAST_ECHO_PROTECT"
+then
+	do_stop_icmp()
+	{
+		[ -w $ipv4/icmp_echo_ignore_broadcasts ] && echo 0 > $ipv4/icmp_echo_ignore_broadcasts
+	}
 
-		action "Stopping IP ICMP Broadcast Echo Protection" do_stop_icmp
-		;;
-esac
+	action "Stopping IP ICMP Broadcast Echo Protection" do_stop_icmp
+fi
 
 ##############################################################################
 # Stop IP Fragment Protection
 #
 
-case "$IPV4_FRAGMENT_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_fragment()
-		{
-			[ -w $ipv4/ip_always_defrag ] && echo 0 > $ipv4/ip_always_defrag
-		}
+if not no "$IPV4_FRAGMENT_PROTECT"
+then
+	do_stop_fragment()
+	{
+		[ -w $ipv4/ip_always_defrag ] && echo 0 > $ipv4/ip_always_defrag
+	}
 
-		action "Stopping IP Fragment Protection" do_stop_fragment
-		;;
-esac
+	action "Stopping IP Fragment Protection" do_stop_fragment
+fi
 
 ##############################################################################
 # Stop IP TCP SYN Cookie Protection
 #
 
-case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_syncookie()
-		{
-			[ -w $ipv4/tcp_syncookies ] && echo 0 > $ipv4/tcp_syncookies
-		}
+if not no "$IPV4_TCP_SYN_COOKIE_PROTECT"
+then
+	do_stop_syncookie()
+	{
+		[ -w $ipv4/tcp_syncookies ] && echo 0 > $ipv4/tcp_syncookies
+	}
 
-		action "Stopping IP TCP SYN Cookie Protection" do_stop_syncookie
-		;;
-esac
+	action "Stopping IP TCP SYN Cookie Protection" do_stop_syncookie
+fi
 
 ##############################################################################
 # Stop IP ICMP Redirect Protection
 #
 
-case "$IPV4_ICMP_REDIRECT_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_redirect()
-		{
-			if [ -w $ipv4/conf/all/accept_redirects ]
-			then
-				for procfile in $ipv4/conf/*/accept_redirects
-				do
-					echo 1 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_ICMP_REDIRECT_PROTECT"
+then
+	do_stop_redirect()
+	{
+		if [ -w $ipv4/conf/all/accept_redirects ]
+		then
+			for procfile in $ipv4/conf/*/accept_redirects
+			do
+				echo 1 > $procfile
+			done
+		fi
+	}
 
-		action "Stopping IP ICMP Redirect Protection" do_stop_redirect
-		;;
-esac
+	action "Stopping IP ICMP Redirect Protection" do_stop_redirect
+fi
 
 ##############################################################################
 # Stop IP Source Routing Protection
 #
 
-case "$IPV4_SOURCE_ROUTE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_sourceroute()
-		{
-			if [ -w $ipv4/conf/all/accept_source_route ]
-			then
-				for procfile in $ipv4/conf/*/accept_source_route
-				do
-					echo 1 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_SOURCE_ROUTE_PROTECT"
+then
+	do_stop_sourceroute()
+	{
+		if [ -w $ipv4/conf/all/accept_source_route ]
+		then
+			for procfile in $ipv4/conf/*/accept_source_route
+			do
+				echo 1 > $procfile
+			done
+		fi
+	}
 
-		action "Stopping IP Source Routing Protection" do_stop_sourceroute
-		;;
-esac
+	action "Stopping IP Source Routing Protection" do_stop_sourceroute
+fi
 
 ##############################################################################
 # Stop IP Source Address Verification
 #
 
-case "$IPV4_SPOOF_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_stop_spoof()
-		{
-			if [ -w $ipv4/conf/all/rp_filter ]
-			then
-				for procfile in $ipv4/conf/*/rp_filter
-				do
-					echo 0 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_SPOOF_PROTECT"
+then
+	do_stop_spoof()
+	{
+		if [ -w $ipv4/conf/all/rp_filter ]
+		then
+			for procfile in $ipv4/conf/*/rp_filter
+			do
+				echo 0 > $procfile
+			done
+		fi
+	}
 
-		action "Stopping IP Source Address Verification" do_stop_spoof
-		;;
-esac
+	action "Stopping IP Source Address Verification" do_stop_spoof
+fi
+
+##############################################################################
+# Stop IP Destination Loose UDP Masquerading
+#
+
+if yes "$IPV4_MASQ_UDP_DEST_LOOSE"
+then
+	do_stop_dloose()
+	{
+		[ -w $ipv4/ip_masq_udp_dloose ] && echo 0 > $ipv4/ip_masq_udp_dloose
+	}
+
+	action "Stopping IP Destination Loose UDP Masquerading" do_stop_dloose
+fi
 
 ##############################################################################
 # Unload IP Masquerading Modules
 #
 
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
-		then
-			do_unload_modules()
-			{
-				local loaded="0" unloaded="0" module
+if yes "$MASQUERADING"
+then
+	if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
+	then
+		do_unload_modules()
+		{
+			local loaded="0" unloaded="0" module
 
-				for module in $MASQ_MODULES
-				do
-					if grep ip_masq_$module /proc/modules >/dev/null
-					then
-						loaded="`expr $loaded + 1`"
-						rmmod ip_masq_$module && unloaded="`expr $unloaded + 1`"
-					fi
-				done
+			for module in $MASQ_MODULES
+			do
+				if grep ip_masq_$module /proc/modules >/dev/null
+				then
+					loaded="`expr $loaded + 1`"
+					rmmod ip_masq_$module && unloaded="`expr $unloaded + 1`"
+				fi
+			done
 
-				[ "$loaded" = "$unloaded" ]
-			}
+			[ "$loaded" = "$unloaded" ]
+		}
 
-			action "Unloading IP Masquerading Modules" do_unload_modules
-		fi
-		;;
-esac
+		action "Unloading IP Masquerading Modules" do_unload_modules
+	fi
+fi
 
 ##############################################################################
 # Stop IP Packet Filter
@@ -428,16 +470,74 @@ esac
 
 do_stop_filter()
 {
-	# Remove any existing rules/chains
+	# Stop Packet Filter
 
 	ipchains -F
 	ipchains -X
-
-	# Set policies for the built-in chains
-
 	ipchains -P input ACCEPT
 	ipchains -P output ACCEPT
 	ipchains -P forward ACCEPT
+
+	# Stop Port Forwarding
+
+	yes "$PORT_FORWARDING" && ipmasqadm portfw -f
+
+	# Stop Alias Port Forwarding
+
+	if yes "$ALIAS_PORT_FORWARDING"
+	then
+		set $ALIAS_PORTFW
+		local fwmark=0
+		while [ $# != 0 ]
+		do
+			fwmark="`expr $fwmark + 1`"
+			local proto=$1 dstaddr=$2 dstport=$3 toaddr=$4 toport=$5 pref=$6
+			shift; shift; shift; shift; shift; shift
+
+			if [ -z "$proto" -o -z "$dstaddr" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" -o -z "$pref" ]
+			then
+				log -s "Invalid Alias Port Forwarding instruction: protocol=\"$proto\" dstaddr=\"$dstaddr\" dstport=\"$dstport\" toaddr=\"$toaddr\" toport=\"$toport\" preference=\"$pref\""
+				break
+			fi
+			ip rule delete from $toaddr fwmark $fwmark nat $dstaddr
+		done
+	fi
+
+	# Stop Static NAT
+
+	if yes "$STATIC_NAT"
+	then
+		set $NAT
+		while [ $# != 0 ]
+		do
+			local dstaddr=$1 toaddr=$2
+			shift; shift
+
+			if [ -z "$dstaddr" -o -z "$toaddr" ]
+			then
+				log -s "Invalid Static NAT instruction: dstaddr=\"$dstaddr\" toaddr=\"$toaddr\""
+				break
+			fi
+
+			ip route delete nat $dstaddr via $toaddr
+
+			for src in $INTERNAL_NETWORKS
+			do
+				for dst in $INTERNAL_NETWORKS
+				do
+					if [ "$src" != "$dst" ]
+					then
+						ip rule delete from $src to $dst lookup main
+					fi
+				done
+			done
+
+			local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+			[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
+			ip rule delete from $toaddr nat $base
+		done
+		ip route flush cache
+	fi
 }
 
 action "Stopping IP Packet Filter" do_stop_filter

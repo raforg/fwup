@@ -1,0 +1,125 @@
+--- ipchains.c.orig	Tue May  2 12:06:29 2000
++++ ipchains.c	Fri May  5 01:39:39 2000
+@@ -774,7 +774,7 @@ list_entries(const ip_chainlabel chain, 
+ }
+ 
+ int
+-main(int argc, char *argv[])
++real_main(int argc, char *argv[])
+ {
+ 	unsigned int nsaddrs = 0, ndaddrs = 0;
+ 	struct in_addr *saddrs = NULL, *daddrs = NULL;
+@@ -797,6 +797,10 @@ main(int argc, char *argv[])
+ 
+ 	program = argv[0];
+ 
++	/* Some reinitialization for when called multiple times */
++	memset(&fw, '\0', sizeof(fw));
++	optind = 0;
++
+ 	while ((c = getopt_long(argc, argv,
+ 	   "-A:C:D:R:I:L::F::Z::N:X::P:MS:Vh::o::p:s:d:j:i:fbvm:nlt:xy",
+ 					   opts, NULL)) != -1) {
+@@ -1353,13 +1357,13 @@ main(int argc, char *argv[])
+ 		int sockfd;
+ 		if ((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1) {
+ 			perror("ipchains: socket creation failed");
+-			exit(1);
++			return 1;
+ 		}
+ 
+ 		if (setsockopt(sockfd, IPPROTO_IP, IP_FW_MASQ_TIMEOUTS,
+ 			       (char *) &timeouts, sizeof(timeouts)) != 0) {
+ 			perror("ipchains: setting MASQ timeouts failed");
+-			exit(1);
++			return 1;
+ 		}
+ 		close(sockfd);
+ 		ret = 1;
+@@ -1375,7 +1379,62 @@ main(int argc, char *argv[])
+ 
+ 	if (!ret)
+ 		fprintf(stderr, "ipchains: %s\n", ipfwc_strerror(errno));
+-	exit(!ret);
++	return !ret;
++}
++
++int
++main(int argc, char *argv[])
++{
++	static char buf[BUFSIZ];
++	int rc = 0;
++
++	program = argv[0];
++
++	if (argc >= 2 && (!strcmp(argv[1], "-Q") || !strcmp(argv[1], "--quick")))
++	{
++		if (argc != 3)
++			exit_error(PARAMETER_PROBLEM, "-Q option requires filename or ``-''");
++
++		if (strcmp(argv[2], "-"))
++			if (freopen(argv[2], "r", stdin) == NULL)
++				exit_error(PARAMETER_PROBLEM, "Failed to open '%s'", argv[2]);
++
++		while (fgets(buf, BUFSIZ, stdin))
++		{
++			static char *sep = " \t\n\r";
++			char *av[100];
++			char *tok;
++			int ac = 0;
++
++			for (tok = strtok(buf, sep); ac < 100 && tok; tok = strtok(NULL, sep))
++			{
++				char *comment = strchr(tok, '#'); /* e.g. #!/sbin/ipchains -Q */
++
++				if (comment)
++					*comment = '\0';
++
++				if (tok != comment)
++					av[ac++] = tok;
++
++				if (comment)
++					break;
++			}
++
++			if (ac == 100)
++				exit_error(PARAMETER_PROBLEM, "Too many parameters: %s", buf);
++
++			av[ac] = NULL;
++
++			if (ac)
++				rc += real_main(ac, av);
++		}
++	}
++	else
++	{
++		rc += real_main(argc, argv);
++	}
++
++	return rc;
+ }
+ 
+ static int check_inverse(const char option[], int *invert)
+@@ -2515,9 +2574,10 @@ exit_printhelp()
+ "       %s -[LFZNX] [chain] [options]\n"
+ "       %s -P chain target [options]\n"
+ "       %s -M [ -L | -S ] [options]\n"
++"       %s -Q cmdfile\n"
+ "       %s -h [icmp] (print this help information, or ICMP list)\n\n",
+ 	       package_version, program, program, program, program, program,
+-	       program, program);
++	       program, program, program);
+ 
+ 	printf(
+ "Commands:\n"
+@@ -2541,7 +2601,9 @@ exit_printhelp()
+ "				Change policy on chain to target\n"
+ "  --masquerade -M -L		List current masqerading connections\n"
+ "  --set	-M -S tcp tcpfin udp\n"
+-"				Set masquerading timeout values\n\n"
++"				Set masquerading timeout values\n"
++"  --quick	-Q cmdfile	Read multiple ipchains commands from cmdfile\n"
++"				(read from standard input if cmdfile is ``-'')\n\n"
+ 
+ "Options:\n"
+ "  --bidirectional -b		insert two rules: one with -s & -d reversed\n"

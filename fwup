@@ -29,16 +29,17 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 ##############################################################################
-# Usage: [policy=filename] [fwdebug=1] fwup
+# Usage: [policy=filename] [fwdebug=1|2] fwup
 #
-# The policy variable determines the policy file to implement.
-# It is /etc/firewall.policy by default.
+# The policy variable determines the policy file to implement. By default,
+# it is /etc/firewall.policy. Setting this in the policy file has no effect.
 #
-# The fwdebug variable causes ipchains, ipmasqadm and ip commands
-# to be printed on standard error as they are executed.
+# If the fwdebug variable is 1, all ipchains, ipmasqadm and ip commands are
+# printed on stderr before they are executed. If fwdebug is 2, the values of
+# policy variables are also printed to stderr as they are used.
 #
 
 ##############################################################################
@@ -62,6 +63,12 @@ log()
 {
 	[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
 	logger -t "$PROG_NAME" -p daemon.notice $*
+}
+
+die()
+{
+	log -s $*
+	exit 1
 }
 
 success()
@@ -98,29 +105,57 @@ action()
 	$* && success "$msg" || failure "$msg"
 }
 
+not()
+{
+	"$@" && return 1 || return 0
+}
+
+yes()
+{
+	case "$1" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+no()
+{
+	case "$1" in
+		[Nn]o|[Ff]alse|[Oo]ff|0)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 # Source the network configuration (if redhat)
 
 [ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
 
-# Check that networking is required
+# Check that networking is required (if redhat)
 
 [ "$NETWORKING" = "no" ] && exit 0
 
 # Check that ipchains is available
 
-if [ ! -x /sbin/ipchains ]
+[ ! -x /sbin/ipchains ] && die "failed to find executable /sbin/ipchains"
+
+# Check whether or not ipchains has the ipchains-Q patch
+
+if /sbin/ipchains --help | grep quick >/dev/null
 then
-	log -s "failed to find executable /sbin/ipchains"
-	exit 1
+	IPCHAINS_QUICK=1
 fi
 
 # Check that ifconfig is available
 
-if [ ! -x /sbin/ifconfig ]
-then
-	log -s "failed to find executable /sbin/ifconfig"
-	exit 1
-fi
+[ ! -x /sbin/ifconfig ] && die "failed to find executable /sbin/ifconfig"
 
 # Check for other protocols that we might need
 
@@ -133,11 +168,7 @@ grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
 
 [ -z "$policy" ] && policy=/etc/firewall.policy
 
-if [ ! -r $policy ]
-then
-	log -s "failed to find readable $policy"
-	exit 1
-fi
+[ ! -r $policy ] && die "failed to find readable $policy"
 
 # Check for ipmasqadm and ip later, iff they are needed
 
@@ -200,7 +231,6 @@ fi
 
 # Range of port numbers used for masquerading
 # These are defined in /usr/src/linux/include/net/ip_masq.h
-# Note: This only works if the source reflects the currently running kernel
 
 [ -z "$masq_ports" ] && masq_ports="61000:65096"
 
@@ -214,7 +244,11 @@ XWIN_PORTS="6000:6063"
 
 # List of other tcp ports to avoid like the plague (NFS, SOCKS, OpenWindows)
 
-EVIL_TCP_PORTS="2049 1080 2000"
+EVIL_TCP_PORTS="2049 1080 2000:2010"
+
+# List of particularly nasty udp ports to avoid like the plague
+
+EVIL_UDP_PORTS=""
 
 # Allowable HTTP server port numbers (this is stupid, use a proxy)
 
@@ -287,11 +321,7 @@ MASQ_UDP_TIMEOUT="0"
 
 # Check that $TRUSTED_INTERFACES is defined (at least lo)
 
-if [ -z "$TRUSTED_INTERFACES" ]
-then
-	log -s "\$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")"
-	exit 1
-fi
+[ -z "$TRUSTED_INTERFACES" ] && die "\$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")"
 
 # If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
@@ -341,11 +371,7 @@ fi
 
 # Check that $UNTRUSTED_INTERFACES is defined
 
-if [ -z "$UNTRUSTED_INTERFACES" ]
-then
-	log -s "\$UNTRUSTED_INTERFACES must be defined in $policy (e.g. UNTRUSTED_INTERFACES=\"ppp0\")"
-	exit 1
-fi
+[ -z "$UNTRUSTED_INTERFACES" ] && die "\$UNTRUSTED_INTERFACES must be defined in $policy (e.g. UNTRUSTED_INTERFACES=\"ppp0\")"
 
 # Check that there aren't too many interfaces listed in $UNTRUSTED_INTERFACES
 
@@ -354,11 +380,7 @@ too_many()
 	[ $# -gt 10 ]
 }
 
-if too_many $UNTRUSTED_INTERFACES
-then
-	log -s "Too many untrusted interfaces (only supports 10)"
-	exit 1
-fi
+too_many $UNTRUSTED_INTERFACES && die "Too many untrusted interfaces (only supports 10)"
 
 # Find the IP addresses of the untrusted interfaces (if they are up).
 # These addresses will be used in the packet rules. If any of the
@@ -418,145 +440,73 @@ fi
 
 # Check the network topology variables
 
-# Static NAT requires iproute2
-case "$STATIC_NAT" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		log -s "STATIC_NAT is not yet implemented"
-		exit 1
-		# Check that ip is available
-		if [ ! -x /sbin/ip ]
-		then
-			log -s "failed to find executable /sbin/ip (required for static NAT)"
-			exit 1
-		fi
-		;;
-esac
+# Static NAT requires iproute2 and $NAT
+if yes "$STATIC_NAT"
+then
+	# Check that ip is available
+	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for static NAT)"
+	# Check that /etc/iproute2 is available
+	[ ! -d /etc/iproute2 ] && die "failed to find directory /etc/iproute2 (required for static NAT)"
+	# Check the policy variable
+	[ -z "$NAT" ] && die "\$NAT must be defined in $policy (required for static NAT)"
+fi
 
-# Alias masquerading requires iproute2 and implies port forwarding
-case "$ALIAS_MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		log -s "ALIAS_MASQUERADING is not yet implemented"
-		exit 1
-		# Check that ip is available
-		if [ ! -x /sbin/ip ]
-		then
-			log -s "failed to find executable /sbin/ip (required for alias masquerading)"
-			exit 1
-		fi
-		# Implies PORT_FORWARDING
-		PORT_FORWARDING="yes"
-		;;
-esac
+# Alias port porwarding requires iproute2 and $ALIAS_PORTFW and implies port forwarding
+if yes "$ALIAS_PORT_FORWARDING"
+then
+	# Check that ip is available
+	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for alias port porwarding)"
+	# Check the policy variable
+	[ -z "$ALIAS_PORTFW" ] && die "\$ALIAS_PORTFW must be defined in $policy (required for alias port porwarding)"
+	# Implies PORT_FORWARDING
+	PORT_FORWARDING="yes"
+fi
 
-# Port forwarding requires ipmasqadm and implies masquerading
-case "$PORT_FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		# Check that ipmasqadm is available
-		if [ ! -x /usr/sbin/ipmasqadm ]
-		then
-			log -s "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
-			exit 1
-		fi
-		# Implies MASQUERADING
-		MASQUERADING="yes"
-		;;
-esac
+# Port forwarding requires ipmasqadm and $PORTFW and implies masquerading
+if yes "$PORT_FORWARDING"
+then
+	# Check that ipmasqadm is available
+	[ ! -x /usr/sbin/ipmasqadm ] && die "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
+	# Check the policy variable
+	not yes "$ALIAS_PORT_FORWARDING" && [ -z "$PORTFW" ] && die "\$PORTFW must be defined in $policy (required for port forwarding)"
+	# Implies MASQUERADING
+	MASQUERADING="yes"
+fi
 
 # If masquerading is required, check that $INTERNAL_NETWORKS is defined.
 # Also check that at most one of MASQUERADING, FORWARDING and STATIC_NAT has
 # been requested. They are mutually exclusive.
 
-case "$FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ -z "$INTERNAL_NETWORKS" ]
-		then
-			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
-			exit 1
-		fi
+if yes "$FORWARDING"
+then
+	[ -z "$INTERNAL_NETWORKS" ] && die "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"10.0.0.0/8\")"
+	yes "$MASQUERADING" && die "\$FORWARDING and \$MASQUERADING are mutually exclusive"
+	yes "$STATIC_NAT" && die "\$FORWARDING and \$STATIC_NAT are mutually exclusive"
+fi
 
-		case "$MASQUERADING" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$FORWARDING and \$MASQUERADING are mutually exclusive"
-				exit 1
-				;;
-		esac
+if yes "$MASQUERADING"
+then
+	[ -z "$INTERNAL_NETWORKS" ] && die "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"10.0.0.0/8\")"
+	yes "$FORWARDING" && die "\$MASQUERADING and \$FORWARDING are mutually exclusive"
+	yes "$STATIC_NAT" && die "\$MASQUERADING and \$STATIC_NAT are mutually exclusive"
+fi
 
-		case "$STATIC_NAT" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$FORWARDING and \$STATIC_NAT are mutually exclusive"
-				exit 1
-				;;
-		esac
-		;;
-esac
-
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ -z "$INTERNAL_NETWORKS" ]
-		then
-			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
-			exit 1
-		fi
-
-		case "$FORWARDING" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$MASQUERADING and \$FORWARDING are mutually exclusive"
-				exit 1
-				;;
-		esac
-
-		case "$STATIC_NAT" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$MASQUERADING and \$STATIC_NAT are mutually exclusive"
-				exit 1
-				;;
-		esac
-		;;
-esac
-
-case "$STATIC_NAT" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ -z "$INTERNAL_NETWORKS" ]
-		then
-			log -s "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")"
-			exit 1
-		fi
-
-		case "$MASQUERADING" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$STATIC_NAT and \$MASQUERADING are mutually exclusive"
-				exit 1
-				;;
-		esac
-
-		case "$FORWARDING" in
-			[Yy]es|[Tt]rues|[Oo]n|1)
-				log -s "\$STATIC_NAT and \$FORWARDING are mutually exclusive"
-				exit 1
-				;;
-		esac
-		;;
-esac
+if yes "$STATIC_NAT"
+then
+	[ -z "$INTERNAL_NETWORKS" ] && die "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"10.0.0.0/8\")"
+	yes "$MASQUERADING" && die "\$STATIC_NAT and \$MASQUERADING are mutually exclusive"
+	yes "$FORWARDING" && die "\$STATIC_NAT and \$FORWARDING are mutually exclusive"
+fi
 
 # Check that $OCDNS_SERVERS or $OSDNS_SERVERS is defined or really obvious
 
 [ -z "$OCDNS_SERVERS" ] && OCDNS_SERVERS="`awk '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
-if [ -z "$OCDNS_SERVERS$OSDNS_SERVERS" ]
-then
-	log -s "Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy"
-	exit 1
-fi
+
+[ -z "$OCDNS_SERVERS$OSDNS_SERVERS" ] && die "Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy"
 
 # Log all denied/rejected packets except those in the "NOLOG" variables
 
-case "$LOG" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		LOG=""
-		;;
-	*)
-		LOG="-l"
-		;;
-esac
+no "$LOG" && LOG="" || LOG="-l"
 
 # Set the blocking policies
 
@@ -564,40 +514,69 @@ esac
 [ -z "$BLOCKOUT" ] && BLOCKOUT="REJECT"
 [ -z "$BLOCKFWD" ] && BLOCKFWD="REJECT"
 
+# Check the blocking policies
+
+for block in BLOCKIN BLOCKOUT BLOCKFWD
+do
+	eval block_policy="\$$block"
+	[ "$block_policy" != "DENY" -a "$block_policy" != "REJECT" ] && die "\$$block must be either DENY or REJECT"
+done
+
+##############################################################################
+# Support for ipchains -Q (very fast ipchains)
+#
+
+cmdfile="/tmp/ipchains.q"
+
+quick_start()
+{
+	rm -f $cmdfile
+	touch $cmdfile
+	chmod 600 $cmdfile
+}
+
+quick()
+{
+	echo $* >> $cmdfile
+}
+
+quick_run()
+{
+	/sbin/ipchains -Q $cmdfile
+	local rc=$?
+	rm -f $cmdfile
+	return $rc
+}
+
 ##############################################################################
 # Debugging
 #
 
+dbg()
+{
+	[ -n "$fwdebug" ] && [ "$fwdebug" -gt 0 ]
+}
+
+dbg2()
+{
+	[ -n "$fwdebug" ] && [ "$fwdebug" -gt 1 ]
+}
+
 ipchains()
 {
-	case "$fwdebug" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			echo ipchains $* >&2
-			;;
-	esac
-
-	/sbin/ipchains $*
+	dbg && echo ipchains $* >&2
+	yes "$IPCHAINS_QUICK" && quick ipchains $* || /sbin/ipchains $*
 }
 
 ipmasqadm()
 {
-	case "$fwdebug" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			echo ipmasqadm $* >&2
-			;;
-	esac
-
+	dbg && echo ipmasqadm $* >&2
 	/usr/sbin/ipmasqadm $*
 }
 
 ip()
 {
-	case "$fwdebug" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			echo ip $* >&2
-			;;
-	esac
-
+	dbg && echo ip $* >&2
 	/sbin/ip $*
 }
 
@@ -635,12 +614,7 @@ chains()
 domasq()
 {
 	local index=$1
-	case "$MASQUERADING" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			[ "$index" = "0" ] && return 0
-			;;
-	esac
-	return 1
+	yes "$MASQUERADING" && [ "$index" = "0" ]
 }
 
 # tcp chain1 chain2 srcaddr srcport dstaddr dstport
@@ -882,11 +856,7 @@ combine()
 {
 	local common=$1 index=$2
 	eval local specific=\"\${common}_$index\"
-	case "$fwdebug" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			eval echo combine $common $index = \$$common \$$specific >&2
-			;;
-	esac
+	dbg2 && eval echo $common.`index UNTRUSTED_INTERFACES $index` = \$$common \$$specific >&2
 	eval echo \$$common \$$specific
 }
 
@@ -915,20 +885,20 @@ index()
 	eval echo \$$index
 }
 
-# notin search arg...
+# member search arg...
 #
-# Returns 1 if the 1st argument is not the same as any of the following
-# arguments, 0 if it is
+# Returns 0 if the 1st argument is the same as any of the following
+# arguments, 1 if it is not
 
-notin()
+member()
 {
 	local search=$1
 	shift
 	for item in $*
 	do
-		[ "$search" = "$item" ] && return 1
+		[ "$search" = "$item" ] && return 0
 	done
-	return 0
+	return 1
 }
 
 # incoming_tcp_only service target port clientsvarname index [clientports]
@@ -1200,7 +1170,7 @@ outgoing_udp_only()
 #
 # Open: tcp/53 udp/53
 
-icdns() # target index
+icdns()
 {
 	incoming_tcpudp_any cdns "$1" 53 ICDNS_CLIENTS $2
 }
@@ -1218,7 +1188,7 @@ icdns() # target index
 #
 # Open: tcp(ack)/1024-4999,61000-65096 udp/1024-4999,61000-65096
 
-ocdns() # targets index
+ocdns()
 {
 	outgoing_tcpudp_only cdns "$1" 53 OCDNS_SERVERS $2
 }
@@ -1235,7 +1205,7 @@ ocdns() # targets index
 #
 # Open: tcp/53 udp/53
 
-isdns() # targets index
+isdns()
 {
 	incoming_tcpudp_any sdns "$1" 53 ISDNS_CLIENTS $2 53
 }
@@ -1251,7 +1221,7 @@ isdns() # targets index
 #
 # Open: tcp(ack)/53,61000-65096 udp/53,61000-65096
 
-osdns() # targets index
+osdns()
 {
 	outgoing_tcpudp_only sdns "$1" 53 OSDNS_SERVERS $2 53
 }
@@ -1264,7 +1234,7 @@ osdns() # targets index
 #
 # Open: tcp/25
 
-ismtp() # targets index
+ismtp()
 {
 	incoming_tcp_any smtp "$1" 25 SMTP_CLIENTS $2
 }
@@ -1277,7 +1247,7 @@ ismtp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-osmtp() # targets index
+osmtp()
 {
 	outgoing_tcp_any smtp "$1" 25 SMTP_SERVERS $2
 }
@@ -1291,7 +1261,7 @@ osmtp() # targets index
 #
 # Open: tcp/109-110
 
-ipop() # targets index
+ipop()
 {
 	incoming_tcp_any pop "$1" 109:110 POP_CLIENTS $2
 }
@@ -1306,7 +1276,7 @@ ipop() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-opop() # targets index
+opop()
 {
 	outgoing_tcp_exclusive pop "$1" 109:110 POP_SERVERS EVIL_POP_SERVERS $2
 }
@@ -1321,7 +1291,7 @@ opop() # targets index
 #
 # Open: tcp/143
 
-iimap() # targets index
+iimap()
 {
 	incoming_tcp_any imap "$1" 143 IMAP_CLIENTS $2
 }
@@ -1337,7 +1307,7 @@ iimap() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oimap() # targets index
+oimap()
 {
 	outgoing_tcp_exclusive imap "$1" 143 IMAP_SERVERS EVIL_IMAP_SERVERS $2
 }
@@ -1351,7 +1321,7 @@ oimap() # targets index
 #
 # Open: tcp/389
 
-ildap() # targets index
+ildap()
 {
 	incoming_tcp_any ldap "$1" 389 SLDAP_CLIENTS $2
 }
@@ -1361,7 +1331,7 @@ ildap() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oldap() # targets index
+oldap()
 {
 	outgoing_tcp_any ldap "$1" 389 SLDAP_SERVERS $2
 }
@@ -1371,7 +1341,7 @@ oldap() # targets index
 #
 # Open: tcp/995
 
-ispop() # targets index
+ispop()
 {
 	incoming_tcp_any spop "$1" 995 SPOP_CLIENTS $2
 }
@@ -1381,7 +1351,7 @@ ispop() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ospop() # targets index
+ospop()
 {
 	outgoing_tcp_any spop "$1" 995 SPOP_SERVERS $2
 }
@@ -1391,7 +1361,7 @@ ospop() # targets index
 #
 # Open: tcp/993
 
-isimap() # targets index
+isimap()
 {
 	incoming_tcp_any simap "$1" 993 SIMAP_CLIENTS $2
 }
@@ -1401,7 +1371,7 @@ isimap() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-osimap() # targets index
+osimap()
 {
 	outgoing_tcp_any simap "$1" 993 SIMAP_SERVERS $2
 }
@@ -1411,7 +1381,7 @@ osimap() # targets index
 #
 # Open: tcp/636
 
-isldap() # targets index
+isldap()
 {
 	incoming_tcp_any sldap "$1" 636 SLDAP_CLIENTS $2
 }
@@ -1421,7 +1391,7 @@ isldap() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-osldap() # targets index
+osldap()
 {
 	outgoing_tcp_any sldap "$1" 636 SLDAP_SERVERS $2
 }
@@ -1434,7 +1404,7 @@ osldap() # targets index
 #
 # Open: tcp/22
 
-issh1() # targets index
+issh1()
 {
 	incoming_tcp_any ssh1 "$1" 22 SSH1_CLIENTS $2 $SSH1_PORTS
 }
@@ -1447,7 +1417,7 @@ issh1() # targets index
 #
 # Open: tcp(ack)/513-1023,61000-65096
 
-ossh1() # targets index
+ossh1()
 {
 	outgoing_tcp_any ssh1 "$1" 22 SSH1_SERVERS $2 $SSH1_PORTS
 }
@@ -1460,7 +1430,7 @@ ossh1() # targets index
 #
 # Open: tcp/22
 
-issh2() # targets index
+issh2()
 {
 	incoming_tcp_any ssh2 "$1" 22 SSH2_CLIENTS $2
 }
@@ -1473,7 +1443,7 @@ issh2() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ossh2() # targets index
+ossh2()
 {
 	outgoing_tcp_any ssh2 "$1" 22 SSH2_SERVERS $2
 }
@@ -1489,7 +1459,7 @@ ossh2() # targets index
 #
 # Open: tcp/21
 
-iftp() # targets index
+iftp()
 {
 	incoming_tcp_any ftp "$1" 21 FTP_CLIENTS $2
 }
@@ -1505,14 +1475,11 @@ iftp() # targets index
 #
 # Open: tcp/21 tcp(ack)/1024-4999,61000-65096
 
-inftp() # targets index
+inftp()
 {
 	local targets="$1" index=$2
 
-	chains inftp $index # outgoing and incoming rule chains for incoming Normal FTP
-
-	# Permit Normal FTP connections from specific external hosts
-	# If no clients are specified, permit all hosts
+	chains inftp $index
 
 	iftp "$targets" $index
 	ipchains -A oinftp$index -j oiftp$index
@@ -1541,14 +1508,11 @@ inftp() # targets index
 #
 # Open: tcp/21,1024-4999
 
-ipftp() # targets index
+ipftp()
 {
 	local targets="$1" index=$2
 
-	chains ipftp $index # outgoing and incoming rule chains for incoming Passive FTP
-
-	# Permit Passive FTP connections from specific external hosts
-	# If no clients are specified, permit all hosts
+	chains ipftp $index
 
 	iftp "$targets" $index
 	ipchains -A iipftp$index -j iiftp$index
@@ -1575,11 +1539,11 @@ ipftp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oftp() # targets index
+oftp()
 {
 	local targets="$1" index=$2
 
-	chains oftp $index # outgoing and incoming rule chains for outgoing FTP
+	chains oftp $index
 
 	# Deny FTP connections to specific external hosts where the user name and
 	# password required to connect or the contents of the files is too sensitive
@@ -1592,9 +1556,6 @@ oftp() # targets index
 			tcpmno $index ooftp$index ioftp$index $target $normal_ports $server 21 $BLOCKOUT $BLOCKIN
 		done
 	done
-
-	# Permit FTP connections to specific external hosts
-	# If no servers are specified, permit all hosts
 
 	default_to_any FTP_SERVERS $index
 
@@ -1619,11 +1580,11 @@ oftp() # targets index
 #
 # Open: tcp/1024-4999 tcp(ack)/1024-4999,61000-65096
 
-onftp() # targets index
+onftp()
 {
 	local targets="$1" index=$2
 
-	chains onftp $index # incoming and outgoing rule chains for outgoing FTP (normal mode)
+	chains onftp $index
 
 	# Include common outgoing FTP connection rules
 
@@ -1642,9 +1603,6 @@ onftp() # targets index
 			tcpno ionftp$index oonftp$index $server 20 $target $normal_ports $BLOCKIN $BLOCKOUT
 		done
 	done
-
-	# Permit Normal FTP connections to specific external hosts
-	# If no servers are specified, permit all hosts
 
 	default_to_any FTP_SERVERS $index
 
@@ -1667,11 +1625,11 @@ onftp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-opftp() # targets index
+opftp()
 {
 	local targets="$1" index=$2
 
-	chains opftp $index # outgoing and incoming rule chains for outgoing FTP (passive mode)
+	chains opftp $index
 
 	# Include common outgoing FTP connection rules
 
@@ -1690,9 +1648,6 @@ opftp() # targets index
 			tcpmno $index oopftp$index iopftp$index $target $normal_ports $server 1024: $BLOCKOUT $BLOCKIN
 		done
 	done
-
-	# Permit Passive FTP connections to specific external hosts
-	# If no servers are specified, permit all hosts
 
 	default_to_any FTP_SERVERS $index
 
@@ -1714,7 +1669,7 @@ opftp() # targets index
 #
 # Open: tcp/23
 
-iteln() # targets index
+iteln()
 {
 	incoming_tcp_only teln "$1" 23 TELNET_CLIENTS $2
 }
@@ -1728,7 +1683,7 @@ iteln() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oteln() # targets index
+oteln()
 {
 	outgoing_tcp_exclusive teln "$1" 23 TELNET_SERVERS EVIL_TELNET_SERVERS $2
 }
@@ -1740,7 +1695,7 @@ oteln() # targets index
 #
 # Open: tcp/80
 
-ihttp() # targets index
+ihttp()
 {
 	incoming_tcp_byport http "$1" INTERNAL_HTTP_PORTS $2
 }
@@ -1757,7 +1712,7 @@ ihttp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ohttp() # targets index
+ohttp()
 {
 	outgoing_tcp_byport http "$1" EXTERNAL_HTTP_PORTS $2
 }
@@ -1769,7 +1724,7 @@ ohttp() # targets index
 #
 # Open: tcp/443
 
-ihttps() # targets index
+ihttps()
 {
 	incoming_tcp_byport https "$1" INTERNAL_HTTPS_PORTS $2
 }
@@ -1785,7 +1740,7 @@ ihttps() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ohttps() # targets index
+ohttps()
 {
 	outgoing_tcp_byport https "$1" EXTERNAL_HTTPS_PORTS $2
 }
@@ -1799,13 +1754,11 @@ ohttps() # targets index
 #
 # Open: tcp/8080
 
-iproxy() # targets index
+iproxy()
 {
 	local targets="$1" index=$2
 
-	chains iproxy $index # incoming and outgoing rule chains for incoming HTTP PROXY
-
-	# Permit HTTP PROXY connections to limited ports on specified hosts
+	chains iproxy $index
 
 	for client in `combine INTERNAL_HTTP_PROXY_CLIENTS $index`
 	do
@@ -1826,13 +1779,11 @@ iproxy() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oproxy() # targets index
+oproxy()
 {
 	local targets="$1" index=$2
 
-	chains oproxy $index # outgoing and incoming rule chains for outgoing HTTP PROXY
-
-	# Permit HTTP PROXY connections to limited ports on specified hosts
+	chains oproxy $index
 
 	for server in `combine EXTERNAL_HTTP_PROXY_SERVERS $index`
 	do
@@ -1847,6 +1798,31 @@ oproxy() # targets index
 }
 
 ##############################################################################
+# Incoming SQUID
+#
+# Open: tcp/3128,3130,4287
+
+isquid()
+{
+	incoming_tcp_any squid "$1" 3128 SQUID_CLIENTS $2
+	incoming_tcp_only squid "$1" 3130 ICP_CLIENTS $2
+	incoming_tcp_only squid "$1" 4287 HTCP_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing SQUID
+#
+# Open: tcp(ack)/1024-4999,61000-65096 udp/1024-4999,61000-65096
+
+osquid()
+{
+	outgoing_tcp_only squid "$1" 3128 SQUID_SERVERS $2
+	outgoing_tcp_only squid "$1" 3130 ICP_SERVERS $2
+	outgoing_tcp_only squid "$1" 4287 HTCP_SERVERS $2
+	outgoing_udp_only squid "$1" 3131 NLANR_REGISTRAR $2
+}
+
+##############################################################################
 # Incoming NNTP
 #
 # Note: Don't run an NNTP server on a bastion host. Run it on an internal
@@ -1854,7 +1830,7 @@ oproxy() # targets index
 #
 # Open: tcp/119
 
-inntp() # targets index
+inntp()
 {
 	incoming_tcp_only nntp "$1" 119 NNTP_CLIENTS $2
 }
@@ -1866,7 +1842,7 @@ inntp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-onntp() # targets index
+onntp()
 {
 	outgoing_tcp_only nntp "$1" 119 NNTP_SERVERS $2
 }
@@ -1878,7 +1854,7 @@ onntp() # targets index
 #
 # Open: tcp/873
 
-irsync() # targets index
+irsync()
 {
 	incoming_tcp_only rsync "$1" 873 RSYNC_CLIENTS $2
 }
@@ -1890,7 +1866,7 @@ irsync() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-orsync() # targets index
+orsync()
 {
 	outgoing_tcp_only rsync "$1" 873 RSYNC_SERVERS $2
 }
@@ -1902,7 +1878,7 @@ orsync() # targets index
 #
 # Open: tcp/2401
 
-icvs() # targets index
+icvs()
 {
 	incoming_tcp_only cvs "$1" 2401 CVS_CLIENTS $2
 }
@@ -1914,9 +1890,9 @@ icvs() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ocvs() # targets index
+ocvs()
 {
-	outgoing_tcp_only cvs $1 2401 CVS_SERVERS $2
+	outgoing_tcp_only cvs "$1" 2401 CVS_SERVERS $2
 }
 
 ##############################################################################
@@ -1924,7 +1900,7 @@ ocvs() # targets index
 #
 # Open: tcp/1529
 
-ignats() # targets index
+ignats()
 {
 	incoming_tcp_only gnats "$1" 1529 GNATS_CLIENTS $2
 }
@@ -1934,7 +1910,7 @@ ignats() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ognats() # targets index
+ognats()
 {
 	outgoing_tcp_only gnats "$1" 1529 GNATS_SERVERS $2
 }
@@ -1944,7 +1920,7 @@ ognats() # targets index
 #
 # Open: tcp/3306
 
-imysql() # targets index
+imysql()
 {
 	incoming_tcp_only mysql "$1" 3306 MYSQL_CLIENTS $2
 }
@@ -1954,7 +1930,7 @@ imysql() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-omysql() # targets index
+omysql()
 {
 	outgoing_tcp_only mysql "$1" 3306 MYSQL_SERVERS $2
 }
@@ -1966,13 +1942,11 @@ omysql() # targets index
 #
 # Open: tcp/139 udp/137-138
 
-ismb() # targets index
+ismb()
 {
 	local targets="$1" index=$2
 
-	chains ismb $index # incoming and outgoing rule chains for incoming SMB
-
-	# Permit SMB connections from specific external hosts
+	chains ismb $index
 
 	for client in `combine SMB_CLIENTS $index`
 	do
@@ -1992,13 +1966,11 @@ ismb() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-osmb() # targets index
+osmb()
 {
 	local targets="$1" index=$2
 
-	chains osmb $index # outgoing and incoming rule chains for outgoing SMB
-
-	# Permit SMB connections to specific external hosts
+	chains osmb $index
 
 	for server in `combine SMB_SERVERS $index`
 	do
@@ -2022,7 +1994,7 @@ osmb() # targets index
 #
 # Open: tcp/6667
 
-iirc() # targets index
+iirc()
 {
 	incoming_tcp_any irc "$1" 6667 IRC_CLIENTS $2
 }
@@ -2037,7 +2009,7 @@ iirc() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oirc() # targets index
+oirc()
 {
 	outgoing_tcp_any irc "$1" 6667 IRC_SERVERS $2
 }
@@ -2050,14 +2022,11 @@ oirc() # targets index
 #
 # Open: tcp/2000-4000 udp/4000
 
-iicq() # targets index
+iicq()
 {
 	local targets="$1" index=$2
 
-	chains iicq $index # incoming and outgoing rule chains for incoming ICQ
-
-	# Permit ICQ connections from specific external hosts
-	# If no clients are specified, permit all hosts
+	chains iicq $index
 
 	default_to_any ICQ_CLIENTS $index
 
@@ -2079,14 +2048,11 @@ iicq() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096 udp/1024-4999,61000-65096
 
-oicq() # targets index
+oicq()
 {
 	local targets="$1" index=$2
 
-	chains oicq $index # outgoing and incoming rule chains for outgoing ICQ
-
-	# Permit ICQ connections to specific external hosts
-	# If no servers are specified, permit all hosts
+	chains oicq $index
 
 	default_to_any ICQ_SERVERS $index
 
@@ -2108,14 +2074,11 @@ oicq() # targets index
 #
 # Open: tcp/554,7070-7071 udp/1024-4999
 
-ireal() # targets index
+ireal()
 {
 	local targets="$1" index=$2
 
-	chains ireal $index # incoming and outgoing rule chains for incoming RealAudio/QuickTime
-
-	# Permit RealAudio connections from specific external hosts
-	# If no clients are specified, permit all hosts
+	chains ireal $index
 
 	default_to_any REALAUDIO_CLIENTS $index
 
@@ -2138,14 +2101,11 @@ ireal() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096 udp/6970-6999,61000,65096
 
-oreal() # targets index
+oreal()
 {
 	local targets="$1" index=$2
 
-	chains oreal $index # outgoing and incoming rule chains for outgoing RealAudio/QuickTime
-
-	# Permit RealAudio connections to specific external hosts
-	# If no servers are specified, permit all hosts
+	chains oreal $index
 
 	default_to_any REALAUDIO_SERVERS $index
 
@@ -2169,14 +2129,11 @@ oreal() # targets index
 #
 # Open: udp/123
 
-intp() # targets index
+intp()
 {
 	local targets="$1" index=$2
 
-	chains intp $index # incoming and outgoing rule chains for incoming NTP
-
-	# Permit NTP connections from specific hosts
-	# If no clients are specified, permit all hosts
+	chains intp $index
 
 	default_to_any NTP_CLIENTS $index
 
@@ -2199,13 +2156,11 @@ intp() # targets index
 #
 # Open: udp/123,1024-4999,61000-65096
 
-ontp() # targets index
+ontp()
 {
 	local targets="$1" index=$2
 
-	chains ontp $index # outgoing and incoming rule chains for outgoing NTP
-
-	# Permit NTP connections to specific hosts
+	chains ontp $index
 
 	outgoing_udp_only ntp "$targets" 123 NTP_SERVERS $index 123
 
@@ -2226,7 +2181,7 @@ ontp() # targets index
 #
 # Open: tcp/70
 
-igoph() # targets index
+igoph()
 {
 	incoming_tcp_byport goph "$1" INTERNAL_GOPHER_PORTS $2
 }
@@ -2238,7 +2193,7 @@ igoph() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ogoph() # targets index
+ogoph()
 {
 	outgoing_tcp_byport goph "$1" EXTERNAL_GOPHER_PORTS $2
 }
@@ -2251,7 +2206,7 @@ ogoph() # targets index
 #
 # Open: tcp/210
 
-iwais() # targets index
+iwais()
 {
 	incoming_tcp_byport wais "$1" INTERNAL_WAIS_PORTS $2
 }
@@ -2263,7 +2218,7 @@ iwais() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-owais() # targets index
+owais()
 {
 	outgoing_tcp_byport wais "$1" EXTERNAL_WAIS_PORTS $2
 }
@@ -2276,7 +2231,7 @@ owais() # targets index
 #
 # Open: udp/1024-4999,61000-65096
 
-oarch() # targets index
+oarch()
 {
 	outgoing_udp_only arch "$1" 1525 ARCHIE_SERVERS $2
 }
@@ -2288,7 +2243,7 @@ oarch() # targets index
 #
 # Open: tcp/79
 
-ifing() # targets index
+ifing()
 {
 	incoming_tcp_any fing "$1" 79 FINGER_CLIENTS $2
 }
@@ -2302,7 +2257,7 @@ ifing() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-ofing() # targets index
+ofing()
 {
 	outgoing_tcp_any fing "$1" 79 FINGER_SERVERS $2
 }
@@ -2315,7 +2270,7 @@ ofing() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-owhois() # targets index
+owhois()
 {
 	outgoing_tcp_any whois "$1" 43 WHOIS_SERVERS $2
 }
@@ -2330,7 +2285,7 @@ owhois() # targets index
 #
 # Open: tcp/113
 
-iauth() # targets index
+iauth()
 {
 	incoming_tcp_any auth "$1" 113 AUTH_CLIENTS $2
 }
@@ -2343,7 +2298,7 @@ iauth() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-oauth() # targets index
+oauth()
 {
 	outgoing_tcp_any auth "$1" 113 AUTH_SERVERS $2
 }
@@ -2356,7 +2311,7 @@ oauth() # targets index
 #
 # Open: tcp/1352
 
-inotes() # targets index
+inotes()
 {
 	incoming_tcp_any notes "$1" 1352 NOTES_CLIENTS $2
 }
@@ -2369,7 +2324,7 @@ inotes() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-onotes() # targets index
+onotes()
 {
 	outgoing_tcp_any notes "$1" 1352 NOTES_SERVERS $2
 }
@@ -2381,13 +2336,11 @@ onotes() # targets index
 #
 # Open: udp/514
 
-ilog() # targets index
+ilog()
 {
 	local targets="$1" index=$2
 
-	chains ilog $index # incoming SYSLOG
-
-	# Permit SYSLOG packets from specific external hosts
+	chains ilog $index
 
 	for client in `combine SYSLOG_CLIENTS $index`
 	do
@@ -2406,13 +2359,11 @@ ilog() # targets index
 #
 # Open: none
 
-olog() # targets index
+olog()
 {
 	local targets="$1" index=$2
 
-	chains olog $index # outgoing SYSLOG
-
-	# Permit SYSLOG packets to specific external hosts
+	chains olog $index
 
 	for server in `combine SYSLOG_SERVERS $index`
 	do
@@ -2430,14 +2381,11 @@ olog() # targets index
 #
 # Open: udp/67
 
-sdhcp() # targets index
+sdhcp()
 {
 	local targets="$1" index=$2
 
-	chains sdhcp $index # incoming and outgoing rule chains for DHCP Server
-
-	# Permit DHCP traffic between this host and specific external hosts
-	# If no clients are specified, permit all hosts
+	chains sdhcp $index
 
 	default_to_any DHCP_CLIENTS $index
 
@@ -2463,13 +2411,11 @@ sdhcp() # targets index
 #
 # Open: udp/68
 
-cdhcp() # targets index
+cdhcp()
 {
 	local targets="$1" index=$2
 
-	chains cdhcp $index # incoming and outgoing rule chains for DHCP Client
-
-	# Permit DHCP traffic between this host and specific external hosts
+	chains cdhcp $index
 
 	for server in `combine DHCP_SERVERS $index`
 	do
@@ -2497,7 +2443,7 @@ cdhcp() # targets index
 #
 # Open: udp/161
 
-isnmp() # targets index
+isnmp()
 {
 	incoming_udp_only snmp "$1" 161 SNMP_CLIENTS $2
 }
@@ -2510,7 +2456,7 @@ isnmp() # targets index
 #
 # Open: udp/1024-4999,61000-65096
 
-osnmp() # targets index
+osnmp()
 {
 	outgoing_udp_only snmp "$1" 161 SNMP_SERVERS $2
 }
@@ -2523,7 +2469,7 @@ osnmp() # targets index
 #
 # Open: 162
 
-isnmpt() # targets index
+isnmpt()
 {
 	incoming_udp_only snmpt "$1" 162 SNMP_TRAP_CLIENTS $2
 }
@@ -2536,7 +2482,7 @@ isnmpt() # targets index
 #
 # Open: udp/1024-4999,61000-65096
 
-osnmpt() # targets index
+osnmpt()
 {
 	outgoing_udp_only snmpt "$1" 162 SNMP_TRAP_SERVERS $2
 }
@@ -2549,7 +2495,7 @@ osnmpt() # targets index
 #
 # Open: tcp/179
 
-ibgp() # targets index
+ibgp()
 {
 	incoming_tcp_only bgp "$1" 179 BGP_CLIENTS $2
 }
@@ -2562,7 +2508,7 @@ ibgp() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-obgp() # targets index
+obgp()
 {
 	outgoing_tcp_only bgp "$1" 179 BGP_SERVERS $2
 }
@@ -2574,15 +2520,13 @@ obgp() # targets index
 #
 # Open: ospf
 
-ospf() # targets index
+ospf()
 {
 	local targets="$1" index=$2
 
 	if [ -n "$OSPF_PROTOCOL" ]
 	then
-		chains ospf $index # incoming and outgoing rule chains for OSPF
-
-		# Permit OSPF traffic to/from specific external routers
+		chains ospf $index
 
 		for router in `combine OSPF_ROUTERS $index`
 		do
@@ -2602,13 +2546,11 @@ ospf() # targets index
 #
 # Open: udp/520
 
-irip() # targets index
+irip()
 {
 	local targets="$1" index=$2
 
-	chains irip $index # incoming and outgoing rule chains for incoming RIP
-
-	# Permit RIP requests from specific external hosts
+	chains irip $index
 
 	for client in `combine RIP_CLIENTS $index`
 	do
@@ -2630,13 +2572,11 @@ irip() # targets index
 #
 # Open: udp/1024-4999,61000-65096
 
-orip() # targets index
+orip()
 {
 	local targets="$1" index=$2
 
-	chains orip $index # outgoing and incoming rule chains for outgoing RIP
-
-	# Permit RIP requests to specific external hosts
+	chains orip $index
 
 	for server in `combine RIP_SERVERS $index`
 	do
@@ -2655,14 +2595,11 @@ orip() # targets index
 #
 # Open: tcp/88,543-544,749
 
-ikerb() # targets index
+ikerb()
 {
 	local targets="$1" index=$2
 
-	chains ikerb $index # incoming and outgoing rule chains for incoming KERBEROS
-
-	# Permit KERBEROS connections from specific external hosts
-	# If no clients are specified, permit all hosts
+	chains ikerb $index
 
 	default_to_any KERBEROS_CLIENTS $index
 
@@ -2682,14 +2619,11 @@ ikerb() # targets index
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
-okerb() # targets index
+okerb()
 {
 	local targets="$1" index=$2
 
-	chains okerb $index # incoming and outgoing rule chains for outgoing KERBEROS
-
-	# Permit KERBEROS connections to specific external hosts
-	# If no servers are specified, permit all hosts
+	chains okerb $index
 
 	default_to_any KERBEROS_SERVERS $index
 
@@ -2718,10 +2652,7 @@ then
 	{
 		local targets="$1" index=$2
 
-		chains ipptp $index # incoming and outgoing rule chains for incoming PPTP
-
-		# Permit PPTP connections from specific external hosts
-		# If no clients are specified, permit all hosts
+		chains ipptp $index
 
 		default_to_any PPTP_CLIENTS $index
 
@@ -2750,10 +2681,7 @@ then
 	{
 		local targets="$1" index=$2
 
-		chains opptp $index # outgoing and incoming rule chains for outgoing PPTP
-
-		# Permit PPTP connections to specific external hosts
-		# If no servers are specified, permit all hosts
+		chains opptp $index
 
 		default_to_any PPTP_SERVERS $index
 
@@ -2781,10 +2709,7 @@ then
 	{
 		local targets="$1" index=$2
 
-		chains iipsec $index # incoming and outgoing rule chains for incoming IPSEC
-
-		# Permit IPSEC connections from specific external hosts
-		# If no clients are specified, permit all hosts
+		chains iipsec $index
 
 		default_to_any IPSEC_CLIENTS $index
 
@@ -2807,16 +2732,13 @@ fi
 #
 # Open: udp/500 esp ah
 
-oipsec() # targets index
+oipsec()
 {
 	local targets="$1" index=$2
 
 	if [ -n "$ESP_PROTOCOL" -a -n "$AH_PROTOCOL" ]
 	then
-		chains oipsec $index # outgoing and incoming rule chains for outgoing IPSEC
-
-		# Permit IPSEC connections to specific external hosts
-		# If no servers are specified, permit all hosts
+		chains oipsec $index
 
 		default_to_any IPSEC_SERVERS $index
 
@@ -2840,22 +2762,18 @@ oipsec() # targets index
 #
 # Open: icmp/echo-request
 
-iping() # targets index
+iping()
 {
 	local targets="$1" index=$2
 
-	chains iping $index # incoming and outgoing rule chains for incoming PING
-
-	# Permit PING requests from specific hosts
+	chains iping $index
 
 	for client in `combine PING_CLIENTS $index`
 	do
 		for target in $targets
 		do
-			# Incoming echo-request
-			icmp iiping$index $client $target 8 $LOG
-			# Outgoing echo-reply
-			icmp oiping$index $target $client 0
+			icmp iiping$index $client $target 8 $LOG # echo-request
+			icmp oiping$index $target $client 0      # echo-reply
 		done
 	done
 }
@@ -2869,14 +2787,11 @@ iping() # targets index
 #
 # Open: icmp/echo-reply
 
-oping() # targets index
+oping()
 {
 	local targets="$1" index=$2
 
-	chains oping $index # outgoing and incoming rule chains for outgoing PING
-
-	# Permit PING requests to specific hosts
-	# If no servers are specified, permit all hosts
+	chains oping $index
 
 	default_to_any PING_SERVERS $index
 
@@ -2884,10 +2799,8 @@ oping() # targets index
 	do
 		for target in $targets
 		do
-			# Outgoing echo-request
-			icmp ooping$index $target $server 8
-			# Incoming echo-reply
-			icmp ioping$index $server $target 0
+			icmp ooping$index $target $server 8 # echo-request
+			icmp ioping$index $server $target 0 # echo-reply
 		done
 	done
 }
@@ -2902,13 +2815,11 @@ oping() # targets index
 #
 # Open: udp/33434-33523
 
-itrace() # targets index
+itrace()
 {
 	local targets="$1" index=$2
 
-	chains itrace $index # incoming and outgoing rule chains for incoming TRACEROUTE
-
-	# Permit TRACEROUTE requests from specific hosts
+	chains itrace $index
 
 	for client in `combine TRACEROUTE_CLIENTS $index`
 	do
@@ -2932,14 +2843,11 @@ itrace() # targets index
 #
 # Open: icmp/time-exceeded,destination-unreachable
 
-otrace() # targets index
+otrace()
 {
 	local targets="$1" index=$2
 
-	chains otrace $index # outgoing and incoming rule chains for outgoing TRACEROUTE
-
-	# Permit TRACEROUTE requests to specific hosts
-	# If no servers are specified, permit all hosts
+	chains otrace $index
 
 	default_to_any TRACEROUTE_SERVERS $index
 
@@ -2970,7 +2878,7 @@ mand_icmp()
 {
 	local targets="$1" index=$2
 
-	chains icmp $index # incoming and outgoing rule chains for other ICMP packets
+	chains icmp $index
 
 	for code in `combine OTHER_INCOMING_ICMP $index`
 	do
@@ -3005,7 +2913,7 @@ mand_danger()
 {
 	local targets="$1" index=$2
 
-	chains danger $index # incoming and outgoing rule chains for dangerous services
+	chains danger $index
 
 	# Permit specific X clients to connect
 	# Note: Don't use this
@@ -3025,6 +2933,15 @@ mand_danger()
 		do
 			tcpsyn idanger$index $any : $target $ports $BLOCKIN $LOG
 			tcpsyn odanger$index $target : $any $ports $BLOCKOUT $LOG
+		done
+	done
+
+	for ports in `combine EVIL_UDP_PORTS $index`
+	do
+		for target in $targets
+		do
+			noudp1 idanger$index $any : $target $ports $BLOCKIN $LOG
+			noudp1 odanger$index $target : $any $ports $BLOCKOUT $LOG
 		done
 	done
 }
@@ -3168,12 +3085,252 @@ mand_nolog()
 }
 
 ##############################################################################
+# Forwarding
+#
+# If forwarding, accept all forwarded packets.
+# All checks are on the input and output chains.
+
+init_forward()
+{
+	ipchains -P forward ACCEPT
+}
+
+##############################################################################
+# Masquerading
+#
+# If masquerading, masquerade packets between the internal networks and
+# everywhere else but not amongst the internal networks themselves.
+#
+# Note: while ipchains probably can masquerade packets across multiple external
+# interfaces, it seems very strange so fwup will only create rules to allow
+# masquerading across the first untrusted interface.
+#
+
+init_masq()
+{
+	# Set masquerading timeouts
+
+	if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
+	then
+		ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
+	fi
+
+	# Accept (unmasqueraded) traffic amongst multiple internal networks
+
+	for src in $INTERNAL_NETWORKS
+	do
+		for dst in $INTERNAL_NETWORKS
+		do
+			if [ "$src" != "$dst" ]
+			then
+				ipchains -A forward -s $src -d $dst -j ACCEPT
+			fi
+		done
+	done
+
+	# Masquerade traffic from internal networks to the outside world
+
+	for masqnet in $INTERNAL_NETWORKS
+	do
+		ipchains -A forward -s $masqnet -j MASQ
+	done
+}
+
+##############################################################################
+# Port Forwarding and Alias Port Forwarding
+#
+# Note: Port forwarding can only be started when connected. Otherwise, the
+# address of the untrusted interface is 0/0 which ipmasqadm can't use.
+#
+
+init_portfw()
+{
+	# Handle port forwarding and alias port forwarding
+	if yes "$ALIAS_PORT_FORWARDING"
+	then
+		# Remove any Alias Port Forwarding related policy routing rules
+		set $ALIAS_PORTFW
+		local fwmark=0
+		while [ $# != 0 ]
+		do
+			fwmark="`expr $fwmark + 1`"
+			local proto=$1 dstaddr=$2 dstport=$3 toaddr=$4 toport=$5 pref=$6
+			shift; shift; shift; shift; shift; shift
+
+			[ -z "$dstaddr" -o -z "$proto" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" -o -z "$pref" ] && break
+
+			ip rule delete from $toaddr fwmark $fwmark nat $dstaddr 2>/dev/null
+		done
+
+		# Prepare for alias port forwarding
+		set $ALIAS_PORTFW
+		chain fwmark
+		ipchains -I input -j fwmark
+	else
+		# There may only be one address on this interface
+		dstaddr="`index UNTRUSTED_ADDRESSES 0`"
+		if [ "${dstaddr#,}" != "$dstaddr" ]
+		then
+			log -s "Too many addresses - use alias port porwarding instead"
+			return 1
+		elif [ "$dstaddr" = "$any" ]
+		then
+			log -s "Interface is down - leaving portfw until later"
+			return 1
+		fi
+
+		# Prepare for port forwarding
+		set $PORTFW
+	fi
+
+	# Flush any existing port forwarding rules
+	ipmasqadm portfw -f
+
+	# Start port forwarding
+	fwmark=0
+	while [ $# != 0 ]
+	do
+		local proto=$1
+		shift
+
+		if yes "$ALIAS_PORT_FORWARDING"
+		then
+			local dstaddr=$1
+			shift
+		fi
+
+		local dstport=$1 toaddr=$2 toport=$3 pref=$4
+		shift; shift; shift; shift
+
+		if [ -z "$dstaddr" -o -z "$proto" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" -o -z "$pref" ]
+		then
+			if yes "$ALIAS_PORT_FORWARDING"
+			then
+				log -s "Invalid Alias Port Forwarding instruction: protocol=\"$proto\" dstaddr=\"$dstaddr\" dstport=\"$dstport\" toaddr=\"$toaddr\" toport=\"$toport\" preference=\"$pref\""
+			else
+				log -s "Invalid Port Forwarding instruction: protocol=\"$proto\" dstport=\"$dstport\" toaddr=\"$toaddr\" toport=\"$toport\" preference=\"$pref\""
+			fi
+			break
+		fi
+
+		# Port forward incoming connections to internal hosts
+
+		ipmasqadm portfw -a -P $proto -L $dstaddr $dstport -R $toaddr $toport -p $pref
+
+		# If multiple public ip addresses are involved, arrange for
+		# reply packets to have their source addresses translated into
+		# the original destination addresses of the incoming
+		# connections. Otherwise, their source addresses would all be
+		# that of the default route interface.
+
+		if yes "$ALIAS_PORT_FORWARDING"
+		then
+			fwmark="`expr $fwmark + 1`"
+
+			# Don't mark traffic amongst multiple internal networks
+			for src in $INTERNAL_NETWORKS
+			do
+				for dst in $INTERNAL_NETWORKS
+				do
+					if [ "$src" != "$dst" ]
+					then
+						ipchains -A fwmark -s $src -d $dst -j RETURN
+					fi
+				done
+			done
+
+			# Mark traffic from internal networks to the outside world
+			ipchains -A fwmark -p $proto -s $toaddr $toport -m $fwmark
+
+			ip rule add from $toaddr fwmark $fwmark nat $dstaddr priority 10010
+		fi
+	done
+}
+
+##############################################################################
+# Static NAT
+#
+# Note: This does not support NAT between multiple internal networks. It is
+# intentionally suppressed. If you require internal NAT, do it elsewhere
+# using rule priorities less than 10000.
+#
+
+init_nat()
+{
+	# Remove any Static NAT related policy routing rules and routes
+	set $NAT
+	while [ $# != 0 ]
+	do
+		local dstaddr=$1 toaddr=$2
+		shift; shift
+
+		[ -z "$dstaddr" -o -z "$toaddr" ] && break
+
+		ip route delete nat $dstaddr via $toaddr 2>/dev/null
+
+		for src in $INTERNAL_NETWORKS
+		do
+			for dst in $INTERNAL_NETWORKS
+			do
+				if [ "$src" != "$dst" ]
+				then
+					ip rule delete from $src to $dst lookup main 2>/dev/null
+				fi
+			done
+		done
+
+		local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+		[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
+		ip rule delete from $toaddr nat $base 2>/dev/null
+	done
+
+	# Start NAT
+	set $NAT
+	while [ $# != 0 ]
+	do
+		local dstaddr=$1 toaddr=$2
+		shift; shift
+
+		if [ -z "$dstaddr" -o -z "$toaddr" ]
+		then
+			log -s "Invalid Static NAT instruction: dstaddr=\"$dstaddr\" toaddr=\"$toaddr\""
+			break
+		fi
+
+		# Translate the destination addresses of incoming packets
+		ip route add nat $dstaddr via $toaddr
+
+		# Don't NAT when forwarding internally
+		for src in $INTERNAL_NETWORKS
+		do
+			for dst in $INTERNAL_NETWORKS
+			do
+				if [ "$src" != "$dst" ]
+				then
+					ip rule add from $src to $dst lookup main priority 10000
+				fi
+			done
+		done
+
+		# Translate the source addresses of outgoing packets
+		base="${dstaddr%/*}" bits="${dstaddr#*/}"
+		[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
+		ip rule add from $toaddr nat $base priority 10010
+	done
+	ip route flush cache
+}
+
+##############################################################################
 # Before we start creating chains, set up the policy for the top level chains
 # and flush all chains.
 #
 
 do_start_filter()
 {
+	# Use "ipchains -Q" if possible
+
+	yes "$IPCHAINS_QUICK" && quick_start
+
 	# Set policies for the built-in chains
 
 	ipchains -P input $BLOCKIN
@@ -3210,7 +3367,7 @@ do_start_filter()
 # routing tables to get return packets back(?)).
 #
 
-	chains spoof # incoming and outgoing rule chains for spoofed packets
+	chains spoof
 
 	# Catch incoming packets that claim to be from an internal network
 	for internal_network in $INTERNAL_NETWORKS
@@ -3258,16 +3415,13 @@ do_start_filter()
 # to allow fragments for performance reasons, do so with a recent kernel.
 
 
-	chains frag # incoming and outgoing rule chains for fragments
+	chains frag
 
-	case "$IPV4_FRAGMENT_PROTECT" in
-		[Nn]o|[Ff]alse|[Oo]ff|0)
-			;;
-		*)
-			ipchains -A ifrag -f -j $BLOCKIN $LOG
-			ipchains -A ofrag -f -j $BLOCKOUT $LOG
-			;;
-	esac
+	if not no "$IPV4_FRAGMENT_PROTECT"
+	then
+		ipchains -A ifrag -f -j $BLOCKIN $LOG
+		ipchains -A ofrag -f -j $BLOCKOUT $LOG
+	fi
 
 ##############################################################################
 # Construct the chains for the untrusted interfaces. All untrusted interfaces
@@ -3299,7 +3453,7 @@ do_start_filter()
 		mand_spoof "$TARGET_self" "$i"
 		ipchains -A i$untrusted -j ispoof$i
 		# Only perform full spoof protection on external untrusted interfaces
-		if notin $untrusted $INTERNAL_UNTRUSTED_INTERFACES
+		if not member $untrusted $INTERNAL_UNTRUSTED_INTERFACES
 		then
 			ipchains -A i$untrusted -j ispoof
 			ipchains -A o$untrusted -j ospoof
@@ -3324,30 +3478,37 @@ do_start_filter()
 		for service in `combine SERVICES $i`
 		do
 			# Extract the service name and target (no target implies self)
-			service_name=${service%.*}
-			service_target=${service#*.}
-			[ "$service_name" = "$service_target" ] && service_target="self"
+			service_name="${service%.*}"
+			service_target="${service#*.}"
+			[ "$service" = "$service_name" ] && service_target="self"
 			eval target=\"\$TARGET_$service_target\"
 
 			if [ -z "$target" ]
 			then
-				echo "$0: Failed to find target for $service_name: \$TARGET_$service_target" >&2
-				continue;
+				log -s "Failed to find target for $service_name: \$TARGET_$service_target"
+				continue
 			fi
 
-			if typeset -f $service_name >/dev/null
+			if not typeset -f $service_name >/dev/null
 			then
-				$service_name "$target" "$i"
-				ipchains -A i$untrusted -j i$service_name$i
-				ipchains -A o$untrusted -j o$service_name$i
-			else
-				echo "$0: $service_name is not a recognised service name" >&2
+				log -s "$service_name is not a recognised service name"
+				continue
 			fi
+
+			# Add rules for this target to the service chain for this interface
+			$service_name "$target" "$i"
+
+			# Install the service chain for this interface unless already done
+			eval [ -z "\$installed_${untrusted}_$service_name$i" ] || continue
+			eval installed_${untrusted}_$service_name$i="1"
+			ipchains -A i$untrusted -j i$service_name$i
+			ipchains -A o$untrusted -j o$service_name$i
 		done
 
 		mand_user "$any" "$i"
 		mand_icmp "$any" "$i"
 		mand_nolog "$any" "$i"
+
 		for service in iuser$i ouser$i icmp$i frag nolog$i
 		do
 			ipchains -A i$untrusted -j i$service
@@ -3378,88 +3539,12 @@ do_start_filter()
 		ipchains -A output -i $untrusted -j o$untrusted
 	done
 
-	# If masquerading, masquerade packets between the internal networks and
-	# everywhere else but not amongst the internal networks themselves.
-	#
-	# Note: while ipchains probably can masquerade packets across multiple external
-	# interfaces, it seems very strange so fwup will only create rules to allow
-	# masquerading across the first untrusted interface.
+	# Setup network role
 
-	case "$MASQUERADING" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-
-			# Set masquerading timeouts
-
-			if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
-			then
-				ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
-			fi
-
-			# Accept (unmasqueraded) traffic amongst multiple internal networks
-
-			for src in $INTERNAL_NETWORKS
-			do
-				for dst in $INTERNAL_NETWORKS
-				do
-					if [ "$src" != "$dst" ]
-					then
-						ipchains -A forward -s $src -d $dst -j ACCEPT
-					fi
-				done
-			done
-
-			# Masquerade traffic from internal networks to the outside world
-
-			for masqnet in $INTERNAL_NETWORKS
-			do
-				ipchains -A forward -s $masqnet -j MASQ
-			done
-
-			# Setup port forwarding (unless disconnected - pukes on -L 0/0)
-
-			case "$PORT_FORWARDING" in
-				[Yy]es|[Tt]rue|[Oo]n|1)
-					ipmasqadm portfw -f
-					if [ -n "$PORTFW" ]
-					then
-						# There may only be one address on this interface
-						dstaddr="`index UNTRUSTED_ADDRESSES 0`"
-						if [ "${dstaddr#,}" != "$dstaddr" ]
-						then
-							echo "$0: Too many addresses - use alias masquerading" >&2
-						elif [ "$dstaddr" = "$any" ]
-						then
-							echo " (not connected - leaving portfw until later)" >&2
-						else
-							set $PORTFW
-							while [ $# != 0 ]
-							do
-								proto=$1; dstport=$2; toaddr=$3; toport=$4
-								shift; shift; shift; shift
-
-								if [ -z "$proto" -o -z "$dstport" -o -z "$toaddr" -o -z "$toport" ]
-								then
-									echo "$0: Invalid port forwarding instructions: \"$proto\" \"$dstport\" \"$toaddr\" \"$toport\" (protocol dstport toaddr toport)" >&2
-									break
-								fi
-
-								ipmasqadm portfw -a -P $proto -L $dstaddr $dstport -R $toaddr $toport
-							done
-						fi
-					fi
-					;;
-			esac
-			;;
-	esac
-
-	# If forwarding, accept all forwarded packets. All checks are on the input and
-	# output chains.
-
-	case "$FORWARDING" in
-		[Yy]es|[Tt]rue|[Oo]n|1)
-			ipchains -A forward -j ACCEPT
-			;;
-	esac
+	yes "$FORWARDING" && init_forward
+	yes "$MASQUERADING" && init_masq
+	yes "$PORT_FORWARDING" && init_portfw
+	yes "$STATIC_NAT" && init_nat
 
 	# Log all packets that reach the end of their chain
 
@@ -3469,6 +3554,8 @@ do_start_filter()
 		ipchains -A output $LOG
 		ipchains -A forward $LOG
 	fi
+
+	not yes "$IPCHAINS_QUICK" || quick_run
 }
 
 action "Starting IP Packet Filter" do_start_filter
@@ -3477,230 +3564,203 @@ action "Starting IP Packet Filter" do_start_filter
 # Load IP Masquerading Modules
 #
 
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
-		then
-			do_load_modules()
-			{
-				local required="0" loaded="0" module
+if yes "$MASQUERADING"
+then
+	if [ -r /proc/modules -a -n "$MASQ_MODULES" ]
+	then
+		do_load_modules()
+		{
+			local required="0" loaded="0" module
 
-				for module in $MASQ_MODULES
-				do
-					if grep ip_masq_$module /proc/modules >/dev/null
-					then
-						continue
-					fi
-					required="`expr $required + 1`"
-					eval modprobe ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
-				done
+			for module in $MASQ_MODULES
+			do
+				if grep ip_masq_$module /proc/modules >/dev/null
+				then
+					continue
+				fi
+				required="`expr $required + 1`"
+				eval modprobe ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
+			done
 
-				[ "$loaded" = "$required" ]
-			}
+			[ "$loaded" = "$required" ]
+		}
 
-			action "Loading IP Masquerading Modules" do_load_modules
-		fi
-		;;
-esac
+		action "Loading IP Masquerading Modules" do_load_modules
+	fi
+fi
+
+##############################################################################
+# Start IP Destination Loose UDP Masquerading
+#
+
+if yes "$IPV4_MASQ_UDP_DEST_LOOSE"
+then
+	do_start_dloose()
+	{
+		[ -w $ipv4/ip_masq_udp_dloose ] && echo 1 > $ipv4/ip_masq_udp_dloose
+	}
+
+	action "Starting IP Destination Loose UDP Masquerading" do_start_dloose
+fi
 
 ##############################################################################
 # Start IP Source Address Verification
 #
 
-case "$IPV4_SPOOF_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_spoof()
-		{
-			if [ -w $ipv4/conf/all/rp_filter ]
-			then
-				for procfile in $ipv4/conf/*/rp_filter
-				do
-					echo 1 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_SPOOF_PROTECT"
+then
+	do_start_spoof()
+	{
+		if [ -w $ipv4/conf/all/rp_filter ]
+		then
+			for procfile in $ipv4/conf/*/rp_filter
+			do
+				echo 1 > $procfile
+			done
+		fi
+	}
 
-		action "Starting IP Source Address Verification" do_start_spoof
-		;;
-esac
+	action "Starting IP Source Address Verification" do_start_spoof
+fi
 
 ##############################################################################
 # Start IP Source Routing Protection
 #
 
-case "$IPV4_SOURCE_ROUTE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_sourceroute()
-		{
-			if [ -w $ipv4/conf/all/accept_source_route ]
-			then
-				for procfile in $ipv4/conf/*/accept_source_route
-				do
-					echo 0 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_SOURCE_ROUTE_PROTECT"
+then
+	do_start_sourceroute()
+	{
+		if [ -w $ipv4/conf/all/accept_source_route ]
+		then
+			for procfile in $ipv4/conf/*/accept_source_route
+			do
+				echo 0 > $procfile
+			done
+		fi
+	}
 
-		action "Starting IP Source Routing Protection" do_start_sourceroute
-		;;
-esac
+	action "Starting IP Source Routing Protection" do_start_sourceroute
+fi
 
 ##############################################################################
 # Start IP ICMP Redirect Protection
 #
 
-case "$IPV4_ICMP_REDIRECT_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_redirect()
-		{
-			if [ -w $ipv4/conf/all/accept_redirects ]
-			then
-				for procfile in $ipv4/conf/*/accept_redirects
-				do
-					echo 0 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_ICMP_REDIRECT_PROTECT"
+then
+	do_start_redirect()
+	{
+		if [ -w $ipv4/conf/all/accept_redirects ]
+		then
+			for procfile in $ipv4/conf/*/accept_redirects
+			do
+				echo 0 > $procfile
+			done
+		fi
+	}
 
-		action "Starting IP ICMP Redirect Protection" do_start_redirect
-		;;
-esac
+	action "Starting IP ICMP Redirect Protection" do_start_redirect
+fi
 
 ##############################################################################
 # Start IP TCP SYN Cookie Protection
 #
 
-case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_syncookie()
-		{
-			[ -w $ipv4/tcp_syncookies ] && echo 1 > $ipv4/tcp_syncookies
-		}
+if not no "$IPV4_TCP_SYN_COOKIE_PROTECT"
+then
+	do_start_syncookie()
+	{
+		[ -w $ipv4/tcp_syncookies ] && echo 1 > $ipv4/tcp_syncookies
+	}
 
-		action "Starting IP TCP SYN Cookie Protection" do_start_syncookie
-		;;
-esac
+	action "Starting IP TCP SYN Cookie Protection" do_start_syncookie
+fi
 
 ##############################################################################
 # Start IP Fragment Protection
 #
 
-case "$IPV4_FRAGMENT_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_fragment()
-		{
-			[ -w $ipv4/ip_always_defrag ] && echo 1 > $ipv4/ip_always_defrag
-		}
+if not no "$IPV4_FRAGMENT_PROTECT"
+then
+	do_start_fragment()
+	{
+		[ -w $ipv4/ip_always_defrag ] && echo 1 > $ipv4/ip_always_defrag
+	}
 
-		action "Starting IP Fragment Protection" do_start_fragment
-		;;
-esac
+	action "Starting IP Fragment Protection" do_start_fragment
+fi
 
 ##############################################################################
 # Start IP ICMP Broadcast Echo Protection
 #
 
-case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_icmp()
-		{
-			[ -w $ipv4/icmp_echo_ignore_broadcasts ] && echo 1 > $ipv4/icmp_echo_ignore_broadcasts
-		}
+if not no "$IPV4_ICMP_BROADCAST_ECHO_PROTECT"
+then
+	do_start_icmp()
+	{
+		[ -w $ipv4/icmp_echo_ignore_broadcasts ] && echo 1 > $ipv4/icmp_echo_ignore_broadcasts
+	}
 
-		action "Starting IP ICMP Broadcast Echo Protection" do_start_icmp
-		;;
-esac
+	action "Starting IP ICMP Broadcast Echo Protection" do_start_icmp
+fi
 
 ##############################################################################
 # Start IP Bogus Error Response Protection
 #
 
-case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_bogus()
-		{
-			[ -w $ipv4/icmp_ignore_bogus_error_responses ] && echo 1 > $ipv4/icmp_ignore_bogus_error_responses
-		}
+if not no "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT"
+then
+	do_start_bogus()
+	{
+		[ -w $ipv4/icmp_ignore_bogus_error_responses ] && echo 1 > $ipv4/icmp_ignore_bogus_error_responses
+	}
 
-		action "Starting IP Bogus Error Response Protection" do_start_bogus
-		;;
-esac
+	action "Starting IP Bogus Error Response Protection" do_start_bogus
+fi
 
 ##############################################################################
 # Start IP Martian Logging
 #
 
-case "$IPV4_LOG_MARTIANS" in
-	[Nn]o|[Ff]alse|[Oo]ff|0)
-		;;
-	*)
-		do_start_martian()
-		{
-			if [ -w $ipv4/conf/all/log_martians ]
-			then
-				for procfile in $ipv4/conf/*/log_martians
-				do
-					echo 0 > $procfile
-				done
-			fi
-		}
+if not no "$IPV4_LOG_MARTIANS"
+then
+	do_start_martian()
+	{
+		if [ -w $ipv4/conf/all/log_martians ]
+		then
+			for procfile in $ipv4/conf/*/log_martians
+			do
+				echo 0 > $procfile
+			done
+		fi
+	}
 
-		action "Starting IP Martian Logging" do_start_martian
-		;;
-esac
+	action "Starting IP Martian Logging" do_start_martian
+fi
 
 ##############################################################################
 # Start Dynamic IP Address Hacking in IP MASQ
 #
 
-case "$IPV4_DYNADDR" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		do_start_dynaddr()
-		{
-			[ -w $ipv4/ip_dynaddr ] && echo 1 > $ipv4/ip_dynaddr
-		}
+if yes "$IPV4_DYNADDR"
+then
+	do_start_dynaddr()
+	{
+		[ -w $ipv4/ip_dynaddr ] && echo 1 > $ipv4/ip_dynaddr
+	}
 
-		action "Starting Dynamic IP Address Hacking in IP MASQ" do_start_dynaddr
-		;;
-esac
+	action "Starting Dynamic IP Address Hacking in IP MASQ" do_start_dynaddr
+fi
 
 ##############################################################################
 # Start IP Packet Forwarding
 #
 
 start_forwarding="0"
-
-case "$FORWARDING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		start_forwarding="1"
-		;;
-esac
-
-case "$MASQUERADING" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		start_forwarding="1"
-		;;
-esac
-
-case "$STATIC_NAT" in
-	[Yy]es|[Tt]rue|[Oo]n|1)
-		start_forwarding="1"
-		;;
-esac
+yes "$FORWARDING" && start_forwarding="1"
+yes "$MASQUERADING" && start_forwarding="1"
+yes "$STATIC_NAT" && start_forwarding="1"
 
 if [ "$start_forwarding" = "1" ]
 then

@@ -28,7 +28,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 # Source networking configuration (if redhat)
 
@@ -63,7 +63,7 @@ case "$1" in
 		[ ! -x $fwup ] && die "Failed to find executable $fwup"
 		[ ! -r $policy ] && die "Failed to find readable $policy"
 
-		$fwup && touch $lock
+		policy="$policy" $fwup && touch $lock
 		;;
 
 	stop|down)
@@ -72,7 +72,7 @@ case "$1" in
 		[ ! -x $fwdown ] && die "Failed to find executable $fwdown"
 		[ ! -r $policy ] && die "Failed to find readable $policy"
 
-		$fwdown && rm -f $lock
+		policy="$policy" $fwdown && rm -f $lock
 		;;
 
 	status)

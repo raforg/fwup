@@ -1,0 +1,43 @@
+--- linux/net/ipv4/ip_forward.c.orig	Tue Mar 28 11:24:15 2000
++++ linux/net/ipv4/ip_forward.c	Fri Mar 24 08:58:07 2000
+@@ -191,10 +191,14 @@
+ 		}
+ 		if (rt->rt_flags&RTCF_MASQ)
+ 			goto skip_call_fw_firewall;
++	} /* MDB 2/3/00 */
+ #endif /* CONFIG_IP_MASQUERADE */
+ 
+ #ifdef CONFIG_FIREWALL
+ 		fw_res=call_fw_firewall(PF_INET, dev2, iph, NULL, &skb);
++		/* MDB 2/4/00: If packet was de-masqed, accept it (we only care 
++		 * about the FW_MASQUERADE flag later) */
++		if(!(IPCB(skb)->flags&IPSKB_MASQUERADED)) {
+ 		switch (fw_res) {
+ 		case FW_ACCEPT:
+ 		case FW_MASQUERADE:
+@@ -206,18 +210,22 @@
+ 			kfree_skb(skb);
+ 			return -1;
+ 		}
++		}
+ #endif
+ 
+ #ifdef CONFIG_IP_MASQUERADE
+-	}
++	/*} MDB 2/3/00 */
+ 
+ skip_call_fw_firewall:
+ 	/*
+ 	 * If this fragment needs masquerading, make it so...
+ 	 * (Don't masquerade de-masqueraded fragments)
++	 * MDB 2/3/00 - replaced if statement: do masq de-masqed packets
+ 	 */
+-	if (!(IPCB(skb)->flags&IPSKB_MASQUERADED) &&
+-	    (fw_res==FW_MASQUERADE || rt->rt_flags&RTCF_MASQ)) {
++	/*if (!(IPCB(skb)->flags&IPSKB_MASQUERADED) &&
++	    (fw_res==FW_MASQUERADE || rt->rt_flags&RTCF_MASQ)) {*/
++	if (fw_res==FW_MASQUERADE || 
++	    (!(IPCB(skb)->flags&IPSKB_MASQUERADED) && rt->rt_flags&RTCF_MASQ)) {
+ 		u32 maddr = 0;
+ 
+ #ifdef CONFIG_IP_ROUTE_NAT

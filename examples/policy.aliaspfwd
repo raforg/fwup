@@ -168,7 +168,7 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 # the internal network interface(s) untrusted, then disallow the service
 # to or from specific hosts across the internal interface.
 
-MASQUERADING="yes"
+# MASQUERADING="no"
 
 # Timeouts used for masquerading (zero means leave timeout as it is)
 # Timeout in seconds for masqueraded tcp addresses
@@ -234,7 +234,7 @@ MASQUERADING="yes"
 # Note: Requires iproute2. Implies PORT_FORWARDING="yes".
 #
 
-# ALIAS_PORT_FORWARDING="no"
+ALIAS_PORT_FORWARDING="yes"
 
 # Specify (protocol, dstaddr, dstport, toaddr, toport, preference) tuples
 # where protocol, dstaddr and dstport identify the destination of an
@@ -246,8 +246,16 @@ MASQUERADING="yes"
 # forwarding policy is specifed, the preference is required even when it
 # isn't useful.
 
-# ALIAS_PORTFW=""
-# e.g. ALIAS_PORTFW="$ALIAS_PORTFW tcp 222.222.222.222 80 10.0.0.1 80 10"
+TARGET_http="222.222.222.222"
+TARGET_https="222.222.222.223"
+TARGET_smtp="222.222.222.224"
+TARGET_ssh="222.222.222.225"
+
+ALIAS_PORTFW=""
+ALIAS_PORTFW="$ALIAS_PORTFW tcp $TARGET_http   80 10.0.0.2  80 10" # http
+ALIAS_PORTFW="$ALIAS_PORTFW tcp $TARGET_https 443 10.0.0.2 443 10" # https
+ALIAS_PORTFW="$ALIAS_PORTFW tcp $TARGET_smtp   25 10.0.0.3  25 10" # smtp
+ALIAS_PORTFW="$ALIAS_PORTFW tcp $TARGET_ssh    22 10.0.0.4  22 10" # ssh
 
 ##############################################################################
 # Static NAT (incoming and outgoing 1:1 NAT)
@@ -451,7 +459,7 @@ OSDNS_SERVERS="222.222.222.2/32 222.222.223.3/32"
 #
 # Open: tcp/25
 
-# SERVICES="$SERVICES ismtp"
+SERVICES="$SERVICES ismtp.smtp" # This will be port forwarded to 10.0.0.3:25
 
 # List of hosts which may connect to this host's SMTP server.
 # Blank means all hosts.
@@ -647,7 +655,7 @@ SERVICES="$SERVICES osldap"
 #
 # Open: tcp/22
 
-SERVICES="$SERVICES issh1"
+SERVICES="$SERVICES issh1.ssh" # This will be port forwarded to 10.0.0.4:22
 
 # List of hosts which may connect to this host's SSH1 server.
 # Blank means all hosts.
@@ -786,7 +794,7 @@ SERVICES="$SERVICES oteln"
 #
 # Open: tcp/80
 
-# SERVICES="$SERVICES ihttp"
+SERVICES="$SERVICES ihttp.http" # This will be port forwarded to 10.0.0.2:80
 
 # Allowable HTTP server port numbers for this host.
 # Blank means no ports.
@@ -817,7 +825,7 @@ SERVICES="$SERVICES ohttp"
 #
 # Open: tcp/443
 
-# SERVICES="$SERVICES ihttps"
+SERVICES="$SERVICES ihttps.https" # This will be port forwarded to 10.0.0.2:443
 
 # Allowable HTTPS port numbers for this host.
 # Blank means no ports.

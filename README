@@ -1,9 +1,10 @@
 README
 ~~~~~~
-firewall - Linux-2.2 ipchains (packet filtering) firewall administration
+firewall - Linux-2.2 ipchains firewall and NAT administration
 
-This contains scripts that manage an ipchains (packet filtering) firewall.
-All you have to do is read the policy file and edit it to your requirements.
+This contains scripts that manage an ipchains firewall and various forms of
+network address and port translation. All you have to do is read the policy
+file and edit it to reflect your filtering policy and topology.
 
 The policy file is composed of sections in which you need to specify much
 information: this host's trusted and untrusted network interfaces; this
@@ -22,15 +23,19 @@ filtering part) in a very short time. Of course, it will not prevent you
 from achieving bad network security, but you will have been warned :)
 
 Each section also contains commented out variables that can be uncommented
-and possibly edited to supply policy information to fwup. Some of them
+and possibly edited to supply policy information to fwup. Most of them
 show the default values used by fwup. Others are choices. Others still are
 just examples. Hopefully it's clear which is which. Each policy variable
 is explained when encountered.
 
-Various network topologies are supported: standalone host, forwarding
-host, simple masquerading host, simple port forwarding/masquerading host,
-alias masquerading host (not implemented yet) and static NAT host (not
-implemented yet).
+Various network topologies are supported:
+
+    Single Host
+    Forwarding
+    Masquerading          (outgoing M:1 NAPT)
+    Port Forwarding       (incoming and outgoing M:1 NAPT)
+    Alias Port Forwarding (outgoing M:1 NAPT and incoming M:N NAPT)
+    Static NAT            (incoming and outgoing 1:1 NAT)
 
 Up to 10 untrusted network interfaces are supported, each with a distinct
 policy. There can be as much or as little policy sharing between untrusted
@@ -65,8 +70,8 @@ Here is the list of currently supported services:
     issh2   - incoming SSH2/LSH
     ossh2   - outgoing SSH2/LSH
     inftp   - incoming FTP (normal mode)
-    ipftp   - incoming FTP (passive mode)
     onftp   - outgoing FTP (normal mode)
+    ipftp   - incoming FTP (passive mode)
     opftp   - outgoing FTP (passive mode)
     iteln   - incoming TELNET
     oteln   - outgoing TELNET
@@ -76,6 +81,8 @@ Here is the list of currently supported services:
     ohttps  - outgoing HTTPS
     iproxy  - incoming HTTP PROXY
     oproxy  - outgoing HTTP PROXY
+    isquid  - incoming SQUID
+    osquid  - outgoing SQUID
     inntp   - incoming NNTP
     onntp   - outgoing NNTP
     irsync  - incoming RSYNC
@@ -139,51 +146,96 @@ corrections, suggestions, patches, pointers to more information, ...
 
 INSTALL
 ~~~~~~~
-The Makefile was written for a Redhat 6.0 Linux 2.2 system. It assumes a
-Redhat 6.0 /etc/rc.d layout (so you might have to edit the Makefile or
-install manually). See REQUIREMENTS for runtime requirements.
+This should install on most linux systems. Let me know if it doesn't.
+See REQUIREMENTS for runtime requirements.
+
+Unpack the distribution:
+
+    tar xzf firewall-20000601.tar.gz
+    cd firewall-20000601
+
+Read the policy file and edit it to reflect your filtering policy and topology:
+
+    vi firewall.policy
 
 Install (as root):
 
-    tar xzf firewall-20000430.tar.gz
-    cd firewall-20000430
     make uninstall # if a previous version is installed
     make install
-
-Edit the sample policy file to reflect your filtering policy and install it:
-
-    vi firewall.policy
     make policy
-
-Start/test the firewall (before untrusted interfaces are brought up):
-
-    /etc/rc.d/init.d/firewall start
 
 For more details:
 
     make help
 
+This will cause the firewall to be started at boot time before the
+network starts and after each new IP address is received via PPP
+or DHCP (if applicable). The firewall will be stopped at shutdown
+time after networking is stopped.
+
 After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
 your untrusted interfaces (as root from the inside and the outside) to make
 sure that you got what you wanted. If there are any surprises, investigate.
 
-Start the firewall at boot time both before and after the network interfaces
-are brought up. If your untrusted interface(s) change IP address, reload the
-firewall in a script that executes as soon as each new IP address is
-established (e.g. /etc/ppp/ip-up.local or /etc/dhcp/*).
+EXTRAS
+~~~~~~
+The examples directory contains several example policy files.
+
+The tools directory contains the following utilities:
+
+    dns2ip - a filter that translates domain names into IP addresses
+    fwhelper - helps the testing and development of an ipchains firewall
+    portscan - performs a thorough port scan
+    tuplegram - prints a histogram of connection tuples in tcpdump output
+
+The patches directory contains two patches that you might find useful:
+
+    ipchains-Q.patch
+    ~~~~~~~~~~~~~~~~
+    This is a patch for ipchains-1.3.9 which adds the -Q option.
+    This option takes a filename or ``-'' as an argument.
+    If a filename is given, ipchains reads its commands from the file.
+    If ``-'' is given, ipchains reads its commands from standard input.
+    Blank lines and shell-style comments are ignored so it is possible
+    to write executable #!/sbin/ipchains scripts.
+
+    This allows ipchains to perform all of it's tasks in a single process
+    instead of several hundred invocations of the same process so starting
+    an ipchains packet filtering firewall can now be done instantaneously.
+
+    Written by raf <raf2@zip.com.au>
+
+    masq-demasq.patch
+    ~~~~~~~~~~~~~~~~~
+    This is a patch for linux-2.2.13 which makes port forwarding
+    work when initiated from inside the masqueraded network(s).
+
+    Written by Michael Best <michael@com.org>
+
+    Note: I haven't tested this - raf
 
 REQUIREMENTS
 ~~~~~~~~~~~~
 - Linux-2.2.x and ipchains
-- ipmasqadm iff doing port forwarding
-- ip (iproute2) iff doing alias masquerading or static NAT (not implemented yet)
+- ipmasqadm iff doing port forwarding or alias port porwarding
+- ip (iproute2) iff doing alias port porwarding or static NAT
 - nmap used by the portscan utility
 - root privileges for ipchains, ipmasqadm, ip and nmap
 - perl used by most of the utilities (dns2ip also requires Net-DNS)
 
+These can be found at:
+
+  Linux-2.2 - http://www.kernel.org (2.2.15)
+  ipchains  - http://www.rustcorp.com/linux/ipchains (1.3.9)
+  ipmasqadm - http://juanjox.kernelnotes.org (0.4.2)
+  iproute2  - ftp://ftp.inr.ac.ru (000305)
+  nmap      - http://www.insecure.org/nmap (2.53)
+  perl      - http://www.perl.com (5.005_03)
+  Net-DNS   - http://www.perl.org/CPAN/modules/by-module/Net (0.12)
+
 COPYING
 ~~~~~~~
-firewall - Linux-2.2 ipchains (packet filtering) firewall administration
+firewall - Linux-2.2 ipchains firewall and NAT administration
 Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
 
     This program is free software; you can redistribute it and/or modify
@@ -283,6 +335,24 @@ HISTORY
     - Removed all uses of perl from fwup (no longer determines masquerade ports
       directly from kernel source but that was a silly idea anyway)
 
+20000601
+
+    - Added "make [un]install" support for most systems and ppp and dhcp
+      (inspired by PMfirewall)
+    - Added the ability to recognise dangerous udp ports and block them early
+      (and added the trojan cavalry (from mason) as comments in the policy file)
+    - Fixed bug: didn't support preferences (load sharing) when port forwarding
+    - Fixed bug: target names couldn't be used with identical service names
+    - Added support for alias port porwarding and static NAT
+    - Added support for "ipchains -Q" if available (twice as fast again!)
+    - Added patches directory to distribution: ipchains-Q and masq-demasq
+    - Added the ability to set ip_masq_udp_dloose for linux-2.2.15
+    - Fixed bug: service chains for multiple targets were added multiple times
+    - Added ACK and Window scans to the portscan utility (for nmap-2.53)
+    - Added SQUID
+    - Added check to ensure that BLOCK{IN|OUT|FWD} are set to DENY or REJECT
+    - Renamed portsummary to tuplegram and added icmp and udp support
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -291,7 +361,8 @@ http://linux-firewall-tools.com by Robert L. Ziegler
 The ipchains mailing list. Particularly Yan Seiner and Mike A. Harris
 IP-Masquerade-HOWTO by David Ranch
 IP Command Reference by Alexey N. Kuznetsov
-Various RFCs
+PMfirewall (http://www.pointman.org) by Rick Johnson
+mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns
 
 BUGS
 ~~~~
@@ -300,9 +371,10 @@ BUGS
   something like: SERVICES="oservice.targeta oservice.targetb", then the hosts
   in both targeta and targetb are restricted to connecting to the same set of
   external servers for the given service. Let me know if this is a problem.
+  It can be fixed but the policy file will get a bit uglier.
 
 - Masquerading across multiple interfaces is not supported. This is probably
-  a feature since doing so seems very strange. Let me know if this is a problem.
+  a feature since doing so seems strange. Let me know if this is a problem.
 
 - When port forwarding, internal hosts shouldn't try to make connections to
   the forwarded port on the external interface. If the port forwarding host
@@ -316,25 +388,33 @@ BUGS
   This can be achieved simply by having a DNS server for internal use only,
   that maps external names to internal addresses.
 
+  Michael Best has written a patch to linux-2.2.13 to fix this.
+  It's in the patches directory under masq-demasq. I haven't tested it.
+
+- There is no support for static NAT between internal networks. Let me know
+  if this is a problem. This needs to be fixed.
+
 - Stopping the firewall stops packet forwarding in general. This is intentional.
   However, on Redhat systems with FORWARD_IPV4="yes" in /etc/sysconfig/network,
   packet forwarding isn't stopped when the firewall is stopped. This is a
   convenience (but it is unsafe).
 
-- There is no support for using ipchains' REDIRECT target.
+- "make install" on systems with rc.local appends a "filewall reload" command
+  to the rc.local file. So the firewall will start after the network is up.
+  You should change this so the firewall starts before the network is up.
+  If this is a problem, tell me where the command needs to go.
 
-- There is no support for alias masquerading or static NAT yet (next release).
+- There is no support for using ipchains' REDIRECT target.
 
 TODO
 ~~~~
 More testing
-Add support for alias masquerading and static NAT (next release)
 Add services: vpn, cuseeme, vdolive, quake, unreal tournament, ...
 Improve fwhelper
-Port to netfilter when linux-2.4 is ready
+Add support for netfilter/iptables when linux-2.4 is ready
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000430
+Date: 20000601
 Author: raf <raf2@zip.com.au>
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall/
 #
 # Copyright (C) 2000 raf <raf2@zip.com.au>
 #
@@ -21,9 +21,9 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# portscan - Perform a thorough port scan
+# portscan - performs a thorough port scan
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 if [ -z "$*" ]
 then
@@ -35,113 +35,128 @@ exec 2>&1
 
 #ports="-p 1-65535"
 #timing="-T Polite"
+#verbose="-v -v"
 
 echo "Start: `date`"
 echo
 
 echo "OS Detection"
 echo  ~~~~~~~~~~~~
-echo nmap -P0 -O $*
+echo nmap -P0 -O $timing $verbose $*
 echo
-nmap -P0 -O $*
+nmap -P0 -O $timing $verbose $*
 
 echo
-echo "TCP connect scan (with ident, RPC scan)"
-echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sT -sR -I $ports $timing $*
+echo "TCP connect scan"
+echo "~~~~~~~~~~~~~~~~"
+echo nmap -P0 -sT $ports $timing $verbose $*
 echo
-nmap -P0 -sT -sR -I $ports $timing $*
-
-echo
-echo "TCP SYN scan (from port 53/dns - pretend DNS server)"
-echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sS $ports -g 53 $timing $*
-echo
-nmap -P0 -sS $ports -g 53 $timing $*
-
-echo
-echo "TCP SYN scan (from port 20/ftp-data - pretend FTP server)"
-echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sS $ports -g 20 $timing $*
-echo
-nmap -P0 -sS $ports -g 20 $timing $*
-
-echo
-echo "TCP SYN scan (from port 1023 - looking for SSH1)"
-echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sS $ports -g 1023 $timing $*
-echo
-nmap -P0 -sS $ports -g 20 $timing $*
+nmap -P0 -sT $ports $timing $verbose $*
 
 echo
 echo "TCP SYN scan"
 echo "~~~~~~~~~~~~"
-echo nmap -P0 -sS $ports $timing $*
+echo nmap -P0 -sS $ports $timing $verbose $*
 echo
-nmap -P0 -sS $ports $timing $*
+nmap -P0 -sS $ports $timing $verbose $*
 
 echo
 echo "TCP SYN scan (with fragments)"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sS -f $ports $timing $*
+echo nmap -P0 -sS -f $ports $timing $verbose $*
 echo
-nmap -P0 -sS -f $ports $timing $*
+nmap -P0 -sS -f $ports $timing $verbose $*
+
+echo
+echo "TCP SYN scan (from port 53/dns - pretend DNS server)"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+echo nmap -P0 -sS $ports -g 53 $timing $verbose $*
+echo
+nmap -P0 -sS $ports -g 53 $timing $verbose $*
+
+echo
+echo "TCP SYN scan (from port 20/ftp-data - pretend FTP server)"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+echo nmap -P0 -sS $ports -g 20 $timing $verbose $*
+echo
+nmap -P0 -sS $ports -g 20 $timing $verbose $*
+
+echo
+echo "TCP SYN scan (from port 1023 - pretend SSH1 client)"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+echo nmap -P0 -sS $ports -g 1023 $timing $verbose $*
+echo
+nmap -P0 -sS $ports -g 20 $timing $verbose $*
 
 echo
 echo "Stealth FIN scan"
 echo "~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sF $ports $timing $*
+echo nmap -P0 -sF $ports $timing $verbose $*
 echo
-nmap -P0 -sF $ports $timing $*
+nmap -P0 -sF $ports $timing $verbose $*
 
 echo
 echo "Stealth FIN scan (with fragments)"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sF -f $ports $timing $*
+echo nmap -P0 -sF -f $ports $timing $verbose $*
 echo
-nmap -P0 -sF -f $ports $timing $*
+nmap -P0 -sF -f $ports $timing $verbose $*
 
 echo
 echo "Xmas Tree scan"
 echo "~~~~~~~~~~~~~~"
-echo nmap -P0 -sX $ports $timing $*
+echo nmap -P0 -sX $ports $timing $verbose $*
 echo
-nmap -P0 -sX $ports $timing $*
+nmap -P0 -sX $ports $timing $verbose $*
 
 echo
 echo "Xmas Tree scan (with fragments)"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sX -f $ports $timing $*
+echo nmap -P0 -sX -f $ports $timing $verbose $*
 echo
-nmap -P0 -sX -f $ports $timing $*
+nmap -P0 -sX -f $ports $timing $verbose $*
 
 echo
 echo "Null scan"
 echo "~~~~~~~~~"
-echo nmap -P0 -sN $ports $timing $*
+echo nmap -P0 -sN $ports $timing $verbose $*
 echo
-nmap -P0 -sN $ports $timing $*
+nmap -P0 -sN $ports $timing $verbose $*
 
 echo
 echo "Null scan (with fragments)"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sN -f $ports $timing $*
+echo nmap -P0 -sN -f $ports $timing $verbose $*
 echo
-nmap -P0 -sN -f $ports $timing $*
+nmap -P0 -sN -f $ports $timing $verbose $*
 
 echo
-echo "UDP scan (with RPC scan)"
-echo "~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sU -sR $ports $timing $*
+echo "UDP scan"
+echo "~~~~~~~~"
+echo nmap -P0 -sU $ports $timing $verbose $*
 echo
-nmap -P0 -sU -sR $ports $timing $*
+nmap -P0 -sU $ports $timing $verbose $*
 
 echo
 echo "UDP scan (from port 53/dns - pretend DNS server)"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo nmap -P0 -sU $ports -g 53 $timing $*
+echo nmap -P0 -sU $ports -g 53 $timing $verbose $*
 echo
-nmap -P0 -sU $ports -g 53 $timing $*
+nmap -P0 -sU $ports -g 53 $timing $verbose $*
+
+echo
+echo "ACK scan"
+echo "~~~~~~~~"
+echo nmap -P0 -sA $ports $timing $verbose $*
+echo
+nmap -P0 -sA $ports $timing $verbose $*
+
+echo
+echo "Window scan"
+echo "~~~~~~~~~~~"
+echo nmap -P0 -sW $ports $timing $verbose $*
+echo
+nmap -P0 -sW $ports $timing $verbose $*
 
 echo
 echo "Finish: `date`"

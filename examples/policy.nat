@@ -168,7 +168,7 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 # the internal network interface(s) untrusted, then disallow the service
 # to or from specific hosts across the internal interface.
 
-MASQUERADING="yes"
+# MASQUERADING="no"
 
 # Timeouts used for masquerading (zero means leave timeout as it is)
 # Timeout in seconds for masqueraded tcp addresses
@@ -257,14 +257,15 @@ MASQUERADING="yes"
 # Note: Requires iproute2.
 #
 
-# STATIC_NAT="no"
+STATIC_NAT="yes"
 
 # Specify (fromaddr, toaddr) tuples where fromaddr is the address to be
 # translated and toaddr is the address into which fromaddr is to be
 # translated.
 
-# NAT=""
-# e.g. NAT="$NAT 222.222.222.222 10.0.0.1"
+NAT=""
+NAT="$NAT 202.202.202.202 10.0.0.1"
+NAT="$NAT 202.202.222.168/29 10.0.0.168"
 
 ##############################################################################
 # Configure other kernel supplied protection
@@ -451,7 +452,7 @@ OSDNS_SERVERS="222.222.222.2/32 222.222.223.3/32"
 #
 # Open: tcp/25
 
-# SERVICES="$SERVICES ismtp"
+SERVICES="$SERVICES ismtp"
 
 # List of hosts which may connect to this host's SMTP server.
 # Blank means all hosts.
@@ -786,7 +787,7 @@ SERVICES="$SERVICES oteln"
 #
 # Open: tcp/80
 
-# SERVICES="$SERVICES ihttp"
+SERVICES="$SERVICES ihttp"
 
 # Allowable HTTP server port numbers for this host.
 # Blank means no ports.
@@ -817,7 +818,7 @@ SERVICES="$SERVICES ohttp"
 #
 # Open: tcp/443
 
-# SERVICES="$SERVICES ihttps"
+SERVICES="$SERVICES ihttps"
 
 # Allowable HTTPS port numbers for this host.
 # Blank means no ports.

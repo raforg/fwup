@@ -2,7 +2,7 @@
 use strict;
 
 #
-# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall/
 #
 # Copyright (C) 2000 raf <raf2@zip.com.au>
 #
@@ -22,9 +22,9 @@ use strict;
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# portsummary - Print a summary of connection tuples in a tcpdump output file
+# tuplegram - prints a histogram of connection tuples in tcpdump output
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 my %pairs = ();
 
@@ -33,21 +33,22 @@ main:
 	while (<>)
 	{
 		my ($src, $dst, $rest) = $_ =~ /\S+ (\S+) > ([^:]+): (.*)$/;
-		#die("Bad line: $_\n") unless defined $src and defined $dst;
+		die("Bad line: $_\n") unless defined $src and defined $dst;
 		last unless defined $src and defined $dst;
-		my ($srcport) = $src =~ /.*\.([^.]+)/;
-		#die("Bad line: $_\n") unless defined $srcport;
-		last unless defined $srcport;
-		my ($dstport) = $dst =~ /.*\.([^.]+)/;
-		#die("Bad line: $_\n") unless defined $dstport;
-		last unless defined $dstport;
+		++$pairs{'icmp: ' . $src . ' -> ' . $dst . ' ' . $1}, next
+			if $rest =~ /^icmp: (.*)$/;
+		my ($srcport) = $src =~ /\d+\.\d+\.\d+\.\d+\.([^.]+)/;
+		my ($dstport) = $dst =~ /\d+\.\d+\.\d+\.\d+\.([^.]+)/;
+		last unless defined $srcport and defined $dstport;
+		++$pairs{'udp: ' . $src . ' -> ' . $dst}, next
+			if $rest =~ /^udp/;
 		my $conn = ($rest =~ /^S/ and $rest !~ / ack /) ? '-syn' : '';
-		++$pairs{$src . ' -> ' . $dst . $conn};
+		++$pairs{'tcp: ' . $src . ' -> ' . $dst . $conn};
 	}
 
 	for (sort keys %pairs)
 	{
-		print("$_ ($pairs{$_})\n");
+		print("$_ ($pairs{$_} packet", (($pairs{$_} == 1) ? '' : 's'), ")\n");
 	}
 
 	exit(0);

@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000430 raf <raf2@zip.com.au>
+# 20000601 raf <raf2@zip.com.au>
 
 ##############################################################################
 # About the policy file
@@ -51,6 +51,10 @@
 # show the default values used by fwup. Others are choices. Others still are
 # just examples. Hopefully it's clear which is which. Each policy variable
 # is explained when encountered.
+#
+# After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
+# your untrusted interfaces (as root from the inside and the outside) to make
+# sure that you got what you wanted. If there are any surprises, investigate.
 #
 
 ##############################################################################
@@ -92,8 +96,9 @@ UNTRUSTED_INTERFACES=""
 # works if the trusted interfaces are up. If the firewall is to be started
 # before the trusted interfaces are up, identify the internal networks
 # explicitly. You also need to identify internal networks explicitly if
-# masquerading and there are multiple untrusted interfaces, otherwise, fwup
-# will masquerade packets forwarded across internal, untrusted interfaces.
+# masquerading and there are multiple untrusted interfaces or there are
+# internal networks that are not directly connected, otherwise, fwup will
+# masquerade packets forwarded across internal, untrusted interfaces.
 # INTERNAL_NETWORKS=""
 
 # Identify the addresses of the untrusted interfaces iff the addresses of all
@@ -116,22 +121,21 @@ UNTRUSTED_INTERFACES=""
 #
 # Various network topologies are supported: standalone host, forwarding
 # host, simple masquerading host, simple port forwarding/masquerading host,
-# alias masquerading host (not implemented yet) and static NAT host (not
-# implemented yet). The following sections specify and configure this host's
-# role in the network topology.
+# alias port porwarding host and static NAT host. The following sections
+# specify and configure this host's role in the network topology.
 #
-# Topology           Required Variables
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Standalone
-# Forwarding         FORWARDING="yes"
-# Masquerading       MASQUERADING="yes"
-# Port Forwarding    PORT_FORWARDING="yes" (implies MASQUERADING="yes")
-# Alias Masquerading ALIAS_MASQUERADING="yes" (implies PORT_FORWARDING="yes")
-# Static NAT         STATIC_NAT="yes"
+# Topology              Required Variables
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Single Host
+# Forwarding            FORWARDING="yes"
+# Masquerading          MASQUERADING="yes"
+# Port Forwarding       PORT_FORWARDING="yes" (implies MASQUERADING)
+# Alias Port Forwarding ALIAS_PORT_FORWARDING="yes" (implies PORT_FORWARDING)
+# Static NAT            STATIC_NAT="yes"
 #
 
 ##############################################################################
-# Standalone
+# Single Host
 #
 # This is for a single host that connects to an external network.
 #
@@ -148,7 +152,7 @@ UNTRUSTED_INTERFACES=""
 # FORWARDING="no"
 
 ##############################################################################
-# Masquerading (outgoing M:1 NAT)
+# Masquerading (outgoing M:1 NAPT)
 #
 # This is for a host that needs to masquerade internal networks behind the
 # single IP address by which it is known to an external network.
@@ -181,6 +185,7 @@ UNTRUSTED_INTERFACES=""
 # rules to fwup and please send me the patch.
 
 # MASQ_MODULES=""
+# e.g.
 # MASQ_MODULES="$MASQ_MODULES portfw"
 # MASQ_MODULES="$MASQ_MODULES cuseeme"
 # MASQ_MODULES="$MASQ_MODULES ftp"
@@ -190,6 +195,9 @@ UNTRUSTED_INTERFACES=""
 # MASQ_MODULES="$MASQ_MODULES raudio"
 # MASQ_MODULES="$MASQ_MODULES user"
 # MASQ_MODULES="$MASQ_MODULES vdolive"
+
+# Extra modules support.
+# IPV4_MASQ_UDP_DEST_LOOSE="no"
 
 ##############################################################################
 # Port Forwarding (incoming and outgoing M:1 NAPT)
@@ -204,36 +212,42 @@ UNTRUSTED_INTERFACES=""
 
 # PORT_FORWARDING="no"
 
-# Specify (protocol, dstport, toaddr, toport) tuples where protocol and
-# dstport identify the destination an incoming packet (the destination
-# address is implicitly that of the external interface) and toaddr and
-# toport specify the internal address and port to which the packet is to be
-# forwarded.
+# Specify (protocol, dstport, toaddr, toport, preference) tuples where
+# protocol and dstport identify the destination an incoming packet (the
+# destination address is implicitly that/those of the untrusted/external
+# interface(s)) and toaddr and toport specify the internal address and port
+# to which the packet is to be forwarded and preference is the preference
+# given to each particular internal address. This can be useful for load
+# sharing. Unfortunately, due to the way in which port forwarding policy is
+# specifed, the preference is required even when it isn't useful.
 
 # PORTFW=""
-# e.g. PORTFW="$PORTFW tcp 80 10.0.0.1 80"
+# e.g. PORTFW="$PORTFW tcp 80 10.0.0.1 80 10"
 
 ##############################################################################
-# Alias Masquerading (incoming and outgoing M:N NAPT)
+# Alias Port Forwarding (outgoing M:1 NAPT and incoming M:N NAPT)
 #
 # This is for a host that needs to translate between real IP addresses by
 # which it is known to an external network (aliased to a single network
 # interface) and private IP addresses used by internal networks.
 #
 # Note: Requires iproute2. Implies PORT_FORWARDING="yes".
-# Note: Not yet implemented.
 #
 
-# ALIAS_MASQUERADING="no"
+# ALIAS_PORT_FORWARDING="no"
 
-# Specify (protocol, dstaddr, dstport, toaddr, toport) tuples where
-# protocol, dstaddr and dstport identify the destination of an incoming
-# packet and toaddr and toport specify the internal address and port to
-# which the packet is to be forwarded. dstaddr must be one of the
-# addresses/aliases of the external interface.
+# Specify (protocol, dstaddr, dstport, toaddr, toport, preference) tuples
+# where protocol, dstaddr and dstport identify the destination of an
+# incoming packet (dstaddr must be one of the addresses/aliases of an
+# untrusted/interface interface) and toaddr and toport specify the internal
+# address and port to which the packet is to be forwarded. and preference is
+# the preference given to each particular internal address. This can be
+# useful for load sharing. Unfortunately, due to the way in which port
+# forwarding policy is specifed, the preference is required even when it
+# isn't useful.
 
-# NAPT=""
-# e.g. NAPT="$NAPT tcp 222.222.222.222 80 10.0.0.1 80"
+# ALIAS_PORTFW=""
+# e.g. ALIAS_PORTFW="$ALIAS_PORTFW tcp 222.222.222.222 80 10.0.0.1 80 10"
 
 ##############################################################################
 # Static NAT (incoming and outgoing 1:1 NAT)
@@ -241,7 +255,6 @@ UNTRUSTED_INTERFACES=""
 # This is for a host that needs to perform static network address translation.
 #
 # Note: Requires iproute2.
-# Note: Not yet implemented.
 #
 
 # STATIC_NAT="no"
@@ -295,8 +308,20 @@ UNTRUSTED_INTERFACES=""
 # XWIN_CLIENTS=""
 
 # List of other tcp ports to avoid like the plague (NFS, SOCKS, OpenWindows)
-# Note: You'll have to remove 2000 from here for incoming ICQ but don't do that.
-# EVIL_TCP_PORTS="2049 1080 2000"
+# These will be blocked before anything else is accepted.
+# Note: You'll have to remove 2000:2010 from here for incoming ICQ but don't
+# do that.
+# EVIL_TCP_PORTS="2049 1080 2000:2010"
+#
+# e.g. The trojan cavalry
+# EVIL_TCP_PORTS="$EVIL_TCP_PORTS 555 1243 6776 6969 10752 12345:12346 12361:12362 21554 23456 30100 30102 31337 31785 31787"
+
+# List of particularly nasty udp ports to avoid like the plague.
+# These will be blocked before anything else is accepted.
+# EVIL_UDP_PORTS=""
+#
+# e.g. The trojan cavalry (Note: The last two will interfere with masquerading)
+# EVIL_UDP_PORTS="$EVIL_UDP_PORTS 31 456 555 666 1001 1170 1234 1245 1492 1600 1807 1981 1999 2001 2023 2115 2140 2565 2801 2989 3024 3150 3700 4092 4950 5000 5001 50505 5321 5400:5402 5569 5742 6670 6711 7000 7300:7308 7789 9872 10067 10167 11223 12223 16969 20000:20001 20034 21544 22222 26274 27374 31337:31338 31339 31666 31789 31791 33333 34324 40412 40421:40423 40426 47262 50776 53001 61446 65000"
 
 # Log all denied/rejected packets
 # Note: See below for blocking selected packets without logging them.
@@ -306,7 +331,8 @@ UNTRUSTED_INTERFACES=""
 # Note: Some people prefer DENY for the input blocking policy because it makes
 # port scans take much longer (like a steering lock on a car). Others prefer
 # REJECT because it makes your network look dumb and hence less attractive to
-# attackers (ports look closed rather than filtered).
+# attackers (ports look closed rather than filtered but only if you also allow
+# 3 (not just fragmentation-needed) in OTHER_OUTGOING_ICMP).
 
 # BLOCKIN="DENY"
 # BLOCKOUT="REJECT"
@@ -327,13 +353,20 @@ UNTRUSTED_INTERFACES=""
 # untrusted interfaces. The numbered variables will only be used for their
 # corresponding interface.
 #
+# For example, the following would allow outgoing HTTP across all untrusted
+# interfaces, outgoing SMTP across untrusted interface 0 and incoming POP
+# across untrusted interface 1.
+#
+#     SERVICES="$SERVICES ohttp"
+#     SERVICES_0="$SERVICES_0 osmtp"
+#     SERVICES_1="$SERVICES_1 ipop"
+#
 # Note: The SERVICES variables contain words of the form: service[.target]
-# (e.g. ihhtp.www) where service is the name of a supported service and target
+# (e.g. ihttp.www) where service is the name of a supported service and target
 # refers to the value of a target variable (e.g. TARGET_www) which contains
-# a set of IP addresses for whichthe service is to be allowed. If the target
+# a set of IP addresses for which the service is to be allowed. If the target
 # is omitted from a SERVICES variable, the service will be allowed for the
-# IP addresses of the corresponding untrusted interface. Target names must
-# not be the same as any service name.
+# IP addresses of the corresponding untrusted interface.
 #
 
 ##############################################################################
@@ -845,6 +878,50 @@ UNTRUSTED_INTERFACES=""
 # EXTERNAL_HTTP_PROXY_PORTS="8080"
 
 ##############################################################################
+# Incoming SQUID
+#
+# Open: tcp/3128,3130,4287
+#
+
+# SERVICES="$SERVICES isquid"
+
+# List of hosts which may connect to this host's squid server.
+# Blank means all hosts.
+# SQUID_CLIENTS=""
+
+# List of squid children that connect to this host's ICP port.
+# Blank means no hosts.
+# ICP_CLIENTS=""
+
+# List of squid children that connect to this host's HTCP port.
+# Blank means no hosts.
+# HTCP_CLIENTS=""
+
+##############################################################################
+# Outgoing SQUID
+#
+# Open: tcp(ack)/1024-4999,61000-65096 udp/1024-4999,61000-65096
+#
+
+# SERVICES="$SERVICES osquid"
+
+# List of SQUID servers to which this network may connect.
+# Blank means no hosts.
+# SQUID_SERVERS=""
+
+# List of SQUID parents using ICP to which this network may connect.
+# Blank means no hosts.
+# ICP_SERVERS=""
+
+# List of SQUID parents using HTCP to which this network may connect.
+# Blank means no hosts.
+# HTCP_SERVERS=""
+
+# The NLANR registrar host.
+# Blank means no hosts.
+# NLANR_REGISTRAR=""
+
+##############################################################################
 # Incoming NNTP
 #
 # Note: Don't run an NNTP server on a bastion host. Run it on an internal
@@ -1074,7 +1151,7 @@ UNTRUSTED_INTERFACES=""
 # Note: You may need special kernel modules for this. This is a bad idea
 # since it leaves many udp ports open.
 #
-# Open: tcp(ack)/1024-4999,61000-65096 udp/6970-6999,61000,65096
+# Open: tcp(ack)/1024-4999,61000-65096 udp/6970-6999,61000-65096
 
 # SERVICES="$SERVICES oreal"
 
@@ -1232,7 +1309,8 @@ UNTRUSTED_INTERFACES=""
 # Note: Permitting this speeds up outgoing SMTP and FTP communications since
 # some SMTP and FTP servers attempt to identify their clients. However,
 # handing out local user names to anonymous FTP servers is not necessarily a
-# good idea. See man identd for details.
+# good idea. See man identd for details. Another way to speed these services
+# up is to allow incoming AUTH connections here but don't run identd.
 #
 # Open: tcp/113
 
@@ -1610,9 +1688,11 @@ UNTRUSTED_INTERFACES=""
 # Other ICMP packets
 #
 # Note: The default icmp rules allow incoming destination-unreachable and
-# outgoing fragmentation-needed, incoming anad outgoing source-quench,
-# incoming and outgoing time-exceeded and incoming and outgoing
-# parameter-problem. There's probably no reason to change this.
+# outgoing fragmentation-needed, incoming and outgoing source-quench, incoming
+# and outgoing time-exceeded and incoming and outgoing parameter-problem.
+# There's probably no reason to change this unless you have set BLOCKIN to be
+# REJECT in which case you need to put 3 into OTHER_OUTGOING_ICMP (instead of
+# fragmentation-needed).
 #
 # Open: destination-unreachable, source-quench, time-exceeded, parameter-problem
 
@@ -1671,5 +1751,33 @@ UNTRUSTED_INTERFACES=""
 
 # INOLOG_PROTO=""
 # ONOLOG_PROTO=""
+
+##############################################################################
+# Glossary
+#
+
+# Perimeter Network
+# ~~~~~~~~~~~~~~~~~
+# An intermediate network between your internal networks and the external,
+# untrusted networks. All traffic to or from the external networks passes
+# through this network. The perimeter network can be seen from the outside,
+# and is the first point of attack from the outside. Hosts within the
+# perimeter network must be highly secured yet you cannot trust them. This is
+# the recommended topology as attackers must break through a highly secured
+# network before they can break into your internal network (and vice versa).
+#
+# Bastion Host
+# ~~~~~~~~~~~~
+# A host on the perimeter network. These hosts are visible to the external,
+# untrusted networks and generally provide services to the internet or provide
+# proxy services to the internal networks. They must be highly secure as they
+# will be the first point of attack.
+#
+# Victim Host
+# ~~~~~~~~~~~
+# A host either on the perimeter network or beyond that is needed to provide
+# an unsafe service. It is expected that, if an unsafe service is required,
+# the victim host serving it will become compromised sooner rather than later.
+#
 
 # vim:set filetype=sh:
