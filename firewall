@@ -29,7 +29,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/sysconfig/firewall.policy
 #
-# 19991229 raf <raf2@zip.com.au>
+# 19991231 raf <raf2@zip.com.au>
 
 # Source function library.
 [ -e /etc/rc.d/init.d/functions ] || exit 1

@@ -20,15 +20,16 @@
 #
 
 # Install the firewall scripts
-# 19991229 raf <raf2@zip.com.au>
+# 19991231 raf <raf2@zip.com.au>
 
 help:
 	@echo "This Makefile supports the following targets"
 	@echo
 	@echo "    help      - show this help (default)"
 	@echo "    install   - install the firewall scripts"
-	@echo "    uninstall - uninstall the firewall scripts"
-	@echo "    list      - list installed firewall scripts"
+	@echo "    policy    - install firewall.policy"
+	@echo "    uninstall - uninstall the firewall scripts and policy"
+	@echo "    list      - list installed firewall scripts and policy"
 	@echo "    dist      - make a distribution"
 	@echo
 
@@ -36,11 +37,13 @@ START = rc2.d rc3.d rc4.d rc5.d
 KILL = rc0.d rc1.d rc6.d
 
 install:
-	install -m 600 firewall.policy /etc/sysconfig
 	install -m 744 fwup /usr/local/sbin
 	install -m 744 fwdown /usr/local/sbin
 	install -m 744 firewall /etc/rc.d/init.d
 	for code in S09 K91; do for rc in $(START); do [ -x /etc/rc.d/$$rc/$${code}firewall ] || ln -s ../init.d/firewall /etc/rc.d/$$rc/$${code}firewall; done; done
+
+policy:
+	install -m 600 firewall.policy /etc/sysconfig
 
 uninstall:
 	rm -f /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/sysconfig/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
@@ -48,6 +51,10 @@ uninstall:
 list:
 	@ls -l /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/sysconfig/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
 
-dist:
+dist: MANIFEST
 	@cd ..; tar czf firewall-`date +%Y%m%d`.tar.gz firewall/[RMf]*
+	@rm -f MANIFEST
+
+MANIFEST:
+	@find . -name \* > MANIFEST
 

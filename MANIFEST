@@ -1,0 +1,15 @@
+./fwup
+./tst
+./tst/go
+./tst/ontp.tcpdump
+./tst/ossh.tcpdump
+./tst/ping.tcpdump
+./tst/pop3.tcpdump
+./tst/traceroute.tcpdump
+./fwdown
+./Makefile
+./firewall
+./MANIFEST
+./fwhelper
+./firewall.policy
+./README

@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 19991229 raf <raf2@zip.com.au>
+# 19991231 raf <raf2@zip.com.au>
 
 # Set the path explicitly
 PATH=/sbin:/bin

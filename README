@@ -1,29 +1,61 @@
 README
 ~~~~~~
 This contains scripts that manage an ipchains (packet filtering) firewall.
-Currently, it is only suitable for (my) home use as it only permits the
-following services:
 
-  Outgoing DNS requests to specific hosts (local client to external server)
-  Outgoing FTP connections to any host (local client to external server)
-  Denial of (e.g. non-anonymous) FTP connections to specific hosts (local client to external server)
-  Outgoing SSH connections to specific hosts (local client to external server)
-  Incoming SSH connections from specific hosts (external client to local server)
-  Outgoing POP3 connections to particular hosts (local client to external server)
-  Denial of POP3 connections to particular hosts (local client to external server)
-  Outgoing HTTP connections (local client to external server)
-  Outgoing NTP requests to specific hosts (local client to external server)
-  Outgoing SMTP connections to specific hosts (local client to external server)
-  Outgoing NNTP connections to specific hosts (local client to external server)
-  Incoming AUTH connections from specific hosts or all hosts (external client to local server)
-  All packet fragments and all ICMP packets are permitted.
+Define filtering policy by selecting from the services listed below and
+specifying which external hosts may be involved as a client or server.
 
-I will be adding rules describing the communications required for many more
-services. The services which are to be permitted and the hosts for which
-they are to be permitted is specified in the firewall.policy file. When the
-library of service rules is more "complete", it will be possible to easily
-implement your own security policy with these scripts just by modifying the
-policy file. At the moment, this is really just a backup.
+The policy is specified in the firewall.policy file. Read it carefully.
+
+    ismtp   - incoming SMTP
+    osmtp   - outgoing SMTP
+    ipop    - incoming POP
+    opop    - outgoing POP
+    inftp   - incoming FTP (normal mode)
+    ipftp   - incoming FTP (passive mode)
+    onftp   - outgoing FTP (normal mode)
+    opftp   - outgoing FTP (passive mode)
+    itelnet - incoming TELNET
+    otelnet - outgoing TELNET
+    inntp   - incoming NNTP
+    onntp   - outgoing NNTP
+    ihttp   - incoming HTTP
+    ohttp   - outgoing HTTP
+    igopher - incoming GOPHER
+    ogopher - outgoing GOPHER
+    iwais   - incoming WAIS
+    owais   - outgoing WAIS
+    oarchie - outgoing ARCHIE
+    ifinger - incoming FINGER
+    ofinger - outgoing FINGER
+    owhois  - outgoing WHOIS
+    iirc    - incoming IRC
+    oirc    - outgoing IRC
+    icdns   - incoming Client DNS
+    ocdns   - outgoing Client DNS
+    isdns   - incoming Server DNS
+    osdns   - outgoing Server DNS
+    isyslog - incoming SYSLOG
+    osyslog - outgoing SYSLOG
+    isnmp   - incoming SNMP
+    osnmp   - outgoing SNMP
+    isnmpt  - incoming SNMP TRAP
+    osnmpt  - outgoing SNMP TRAP
+    irip    - incoming RIP
+    orip    - outgoing RIP
+    intp    - incoming NTP
+    ontp    - outgoing NTP
+    issh    - incoming SSH
+    ossh    - outgoing SSH
+    iident  - incoming IDENT
+    oident  - outgoing IDENT
+    iping   - incoming PING
+    oping   - outgoing PING
+    itrace  - incoming TRACEROUTE
+    otrace  - outgoing TRACEROUTE
+
+Note: This version hasn't been tested yet. Don't trust it. Test it.
+Bug reports, comments, suggestions and patches are always appreciated.
 
 INSTALL
 ~~~~~~~
@@ -31,23 +63,24 @@ This was written for a Redhat 6.0 Linux 2.2.x system. The Makefile assumes a
 Redhat 6.0 /etc layout and everything else requires ipchains which is a
 Linux-2.2.x feature.
 
-Install:
+Install (as root):
 
     tar xzf fw.tar.gz
     cd fw
     make install
 
+Edit and install the sample policy file to reflect your filtering policy:
+
+    vi firewall.policy
+    make policy
+
+Start/test the firewall:
+
+    /etc/rc.d/init.d/firewall start
+
 For more details:
 
     make help
-
-Edit the policy file to reflect your security policy:
-
-    vi /etc/sysconfig/firewall.policy
-
-Start the firewall:
-
-    /etc/rc.d/init.d/firewall start
 
 COPYING
 ~~~~~~~
@@ -71,10 +104,11 @@ Copyright (C) 1999 raf <raf2@zip.com.au>
 
 TODO
 ~~~~
-Heaps! Many more services. Serious doco in policy file. Improve fwhelper.
+Test fwup!
+Improve fwhelper.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 19991229
+Date: 19991231
 Author: raf <raf2@zip.com.au>
 

@@ -21,53 +21,649 @@
 
 # name: /etc/sysconfig/firewall.policy
 #
-# This file tells the firewall scripts which interface to filter and which
-# hosts and services to accept/reject.
+# This file tells the firewall scripts which interface to filter
+# and which hosts and services to accept/reject.
 #
-# 19991229 raf <raf2@zip.com.au>
+# 19991231 raf <raf2@zip.com.au>
 
-# Specify the local network pattern
-#LOCALNET="192.168.1.0/24"
+##############################################################################
+# Local information
+#
 
-# Accept all localnet and loopback packets
-UNFILTERED_INTERFACES="eth0 lo"
+# Identify the local network
+LOCALNET="192.168.1.0/24"
+
+# List of DNS servers
+# DNS_SERVERS="`grep nameserver /etc/resolv.conf | awk '{ printf "%s/32\n", $2 }'`"
+
+# Range of X Window server ports to avoid like the plague
+# XWINPORTS="6000:6005"
+
+##############################################################################
+# Top level policy
+#
 
 # Filter all packets on the ppp0 interface
-FILTERED_INTERFACE="ppp0"
+UNTRUSTED_INTERFACE="ppp0"
 
-# Masquerade the localnet
+# Accept all localnet and loopback packets
+TRUSTED_INTERFACES="eth0 lo"
+
+# Masquerade the local network
 MASQUERADE="yes"
 
-# Userftp/ssh/sftp host
-ZIPPER="203.12.97.87/32"
-
-# List of user ftp servers to deny (to prevent plaintext password transmission)
-USERFTP_SERVERS="$ZIPPER"
-
-# List of pop3 servers to deny (to prevent plaintext password transmission)
-USERPOP3_SERVERS="203.12.97.4/32"
-
-# List of ssh servers to allow
-SSH_SERVERS="$ZIPPER"
-
-# List of smtp servers to allow
-SMTP_SERVERS="203.12.97.49/32"
-
-# List of nntp servers to allow
-NNTP_SERVERS="203.12.97.3/32"
-
-# List of pop3 servers to allow
-POP3_SERVERS="209.1.224.30/32 209.1.224.29/32 209.1.224.138/32 209.1.224.42/32 209.1.224.44/32"
-
-# List of ntp servers to allow
-NTP_SERVERS="203.12.97.2/32 140.79.17.101/32 130.155.98.1/32 128.250.37.1/32 128.250.36.2/32 128.250.37.2/32 140.79.17.101/32 "
-
-# List of auth servers allowed to connect
-IAUTH_SERVERS="$SMTP_SERVERS"
-
 # Log all denied/rejected packets
-LOG="-l"
+# LOG="yes"
 
-# List of allowed services
-SERVICES="odns oaftp ossh issh opop3 ohttp ontp osmtp onntp iauth"
+##############################################################################
+# Service level policy
+#
 
+##############################################################################
+# Incoming SMTP
+#
+# Note: If this is a bastion host, run smap and permit all hosts to connect.
+# Otherwise, only permit connections from the bastion host and run smap.
+#
+
+# SERVICES="$SERVICES ismtp"
+
+# List of hosts which may connect to this host's SMTP server.
+# Blank means all hosts.
+# SMTP_CLIENTS=""
+
+##############################################################################
+# Outgoing SMTP
+#
+# Note: If this host is a bastion, permit connections to all hosts, otherwise
+# only permit connections to the bastion host.
+#
+
+SERVICES="$SERVICES osmtp"
+
+# List of SMTP servers to which this network may connect.
+# Blank means all hosts.
+SMTP_SERVERS=""
+
+##############################################################################
+# Incoming POP
+#
+# Note: This is an extremely bad idea since real user names and passwords
+# and private mail will be transmitted over the net in plaintext.
+#
+
+# SERVICES="$SERVICES ipop"
+
+# List of hosts which may connect to this host's POP server.
+# Blank means all hosts.
+# POP_CLIENTS=""
+
+##############################################################################
+# Outgoing POP
+#
+# Note: This is an extremely bad idea when the user name and password or
+# people's private mail are too sensitive to be transmitted over the net in
+# plaintext. Use $EVIL_POP_SERVERS to deny such uses while allowing less
+# sensitive POP access.
+#
+
+# SERVICES="$SERVICES opop"
+
+# List of POP servers to which this network may not connect
+# (to prevent plaintext password transmission).
+# Blank means no hosts.
+# EVIL_POP_SERVERS=""
+
+# List of POP servers to which this network may connect.
+# Blank means all hosts.
+# POP_SERVERS=""
+
+##############################################################################
+# Incoming Normal/Passive FTP
+#
+# Note: This is an extremely bad idea if you are running a non-anonymous
+# FTP server since real user names, passwords and private files will be
+# transmitted over the net in plaintext. Use sftp instead. This should only
+# be used on a bastion host running an anonymous FTP server.
+#
+
+# SERVICES="$SERVICES inftp"
+# SERVICES="$SERVICES ipftp"
+
+# List of hosts which may connect to this host's FTP server.
+# Blank means all hosts.
+# FTP_CLIENTS=""
+
+##############################################################################
+# Outgoing FTP
+#
+# Note: This is an extremely bad idea if used for non-anonymous FTP access
+# since real user names, passwords and private files will be transmitted
+# over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
+# require that users use sftp instead.
+#
+# Also, outgoing normal mode ftp is an extremely bad idea since it allows
+# any host to connect to any tcp port above 1023. Instead, restrict
+# connections to a bastion host running an FTP proxy.
+#
+
+SERVICES="$SERVICES opftp"
+# SERVICES="$SERVICES onftp"
+
+# List of non-anonymous FTP servers to which this network may not connect
+# (to prevent plaintext password transmission).
+# Blank means no hosts.
+# EVIL_FTP_SERVERS=""
+
+# List of FTP servers to which this network may connect.
+# Blank means all hosts.
+# FTP_SERVERS=""
+
+##############################################################################
+# Incoming TELNET
+#
+# Note: This is an extremely bad idea since real user names, passwords and
+# login sessions will be transmitted over the net in plaintext. Require that
+# users use ssh instead.
+#
+
+# SERVICES="$SERVICES itelnet"
+
+# List of hosts which may connect to this host's TELNET server.
+# Blank means no hosts.
+# TELNET_CLIENTS=""
+
+##############################################################################
+# Outgoing TELNET
+#
+# Note: This is an extremely bad idea since real user names, passwords and
+# login sessions will be transmitted over the net in plaintext. Require that
+# users use ssh instead.
+#
+
+# SERVICES="$SERVICES otelnet"
+
+# List of TELNET servers to which this network may connect.
+# Blank means no hosts.
+# TELNET_SERVERS=""
+
+##############################################################################
+# Incoming NNTP
+#
+# Note: Don't run an NNTP server on a bastion host. Run it on an internal
+# host and only permit connections from trusted external NNTP servers.
+#
+
+# SERVICES="$SERVICES inntp"
+
+# List of hosts which may connect to this host's NNTP server.
+# Blank means no hosts.
+# NNTP_CLIENTS=""
+
+##############################################################################
+# Outgoing NNTP
+#
+# Note: Only permit NNTP connections to trusted external NNTP servers.
+#
+
+# SERVICES="$SERVICES onntp"
+
+# List of NNTP servers to which this network may connect.
+# Blank means no hosts.
+# NNTP_SERVERS=""
+
+##############################################################################
+# Incoming HTTP
+#
+# Note: Only run public HTTP servers on bastion hosts.
+#
+
+# SERVICES="$SERVICES ihttp"
+
+# Allowable HTTP server port numbers for this host.
+# Blank means no ports.
+# INTERNAL_HTTP_PORTS="80"
+
+##############################################################################
+# Outgoing HTTP
+#
+# Note: You can limit HTTP connections to certain ports on external hosts
+# with $EXTERNAL_HTTP_PORTS. By default, this is "80 81 800 8000 8080 8088".
+# It is safe to make $EXTERNAL_HTTP_PORTS empty, permitting local clients to
+# connect to any port (potentially an HTTP server) on any host and receive
+# the responses but you'd be better off using a caching HTTP proxy on a
+# bastion host anyway.
+#
+
+SERVICES="$SERVICES ohttp"
+
+# Allowable port numbers for external HTTP servers (this is stupid).
+# Blank means all ports.
+# EXTERNAL_HTTP_PORTS="80 81 800 8000 8080 8088"
+
+##############################################################################
+# Incoming GOPHER
+#
+# Note: Don't use this. It's for GOPHER servers. I'm just being silly.
+# If you must run a public GOPHER server, run it on a bastion host.
+#
+
+# SERVICES="$SERVICES igopher"
+
+# Allowable GOPHER server port numbers for this host.
+# Blank means no ports.
+# INTERNAL_GOPHER_PORTS="70"
+
+##############################################################################
+# Outgoing GOPHER
+#
+# Note: Don't use this. Use an HTTP-GOPHER gateway.
+#
+
+# SERVICES="$SERVICES ogopher"
+
+# Allowable port numbers for external GOPHER servers (this is stupid).
+# Blank means all ports.
+# EXTERNAL_GOPHER_PORTS="70"
+
+##############################################################################
+# Incoming WAIS
+#
+# Note: Don't use this. It's for WAIS servers. I'm just being silly.
+# If you must run a public WAIS server, run it on a bastion host.
+#
+
+# SERVICES="$SERVICES iwais"
+
+# Allowable WAIS server port numbers for this host.
+# Blank means no ports.
+# INTERNAL_WAIS_PORTS="210"
+
+##############################################################################
+# Outgoing WAIS
+#
+# Note: Don't use this. Use an HTTP-WAIS gateway instead.
+#
+
+# SERVICES="$SERVICES owais"
+
+# Allowable port numbers for external WAIS servers (this is stupid).
+# Blank means all ports.
+# EXTERNAL_WAIS_PORTS="210"
+
+##############################################################################
+# Outgoing ARCHIE
+#
+# Note: Don't use this. Use an HTTP-ARCHIE gateway instead. If you must
+# permit this, restrict it to the well known ARCHIE servers.
+#
+
+# SERVICES="$SERVICES oarchie"
+
+# List of ARCHIE servers to which this network may connect.
+# Blank means no hosts.
+# ARCHIE_SERVERS=""
+
+##############################################################################
+# Incoming FINGER
+#
+# Note: Only run a public (secure) FINGER server on a bastion host.
+#
+
+# SERVICES="$SERVICES ifinger"
+
+# List of hosts which may connect to this host's FINGER server.
+# Blank means all hosts.
+# FINGER_CLIENTS=""
+
+##############################################################################
+# Outgoing FINGER
+#
+# Note: Make sure your finger clients can handle non-printable characters in
+# FINGER output otherwise programmable terminals may get themselves
+# reprogrammed.
+#
+
+# SERVICES="$SERVICES ofinger"
+
+# List of FINGER servers to which this network may connect.
+# Blank means all hosts.
+# FINGER_SERVERS=""
+
+##############################################################################
+# Outgoing WHOIS
+#
+# Note: Restrict WHOIS connections to the well known WHOIS servers.
+# Do not run a WHOIS server.
+#
+
+# SERVICES="$SERVICES owhois"
+
+# List of WHOIS servers to which this network may connect.
+# Blank means all hosts.
+# WHOIS_SERVERS=""
+
+##############################################################################
+# Incoming IRC
+#
+# Note: If you run an internal IRC server, make sure it can't communicate
+# with external IRC servers or it will attach itself to the IRC spanning
+# tree through which this host can be attacked. Also, DCC connections
+# between IRC clients isn't supported because it's a very bad idea across a
+# firewall.
+#
+
+# SERVICES="$SERVICES iirc"
+
+# List of hosts which may connect to this host's IRC server.
+# Blank means all hosts.
+# IRC_CLIENTS=""
+
+##############################################################################
+# Outgoing IRC
+#
+# Note: IRC clients can be dangerous and you shouldn't allow IRC across a
+# firewall. It's best to run them on a victim host. Also, DCC connections
+# between IRC clients isn't supproted because it's a very bad idea across a
+# firewall.
+#
+
+# SERVICES="$SERVICES oirc"
+
+# List of IRC servers to which this network may connect.
+# Blank means all hosts.
+# IRC_SERVERS=""
+
+##############################################################################
+# Incoming Client DNS
+#
+# Note: You only need this if you run a DNS server that external hosts can
+# access.
+#
+
+# SERVICES="$SERVICES icdns"
+
+# List of hosts which may connect to this host's DNS server.
+# Blank means all hosts.
+# DNS_CLIENTS=""
+
+##############################################################################
+# Outgoing Client DNS
+#
+# Note: You need this if you don't run an internal DNS server.
+#
+
+SERVICES="$SERVICES ocdns"
+
+# List of DNS servers to which this network may connect.
+# Blank means no hosts.
+# DNS_SERVERS="`grep nameserver /etc/resolv.conf | awk '{ printf "%s/32\n", $2 }'`"
+
+
+##############################################################################
+# Incoming Server DNS
+#
+# Note: Only use this if this host runs an internal DNS servers whose
+# secondary is external (e.g. on a bastion host). Restrict this to
+# connections from the secondary DNS server.
+#
+
+# SERVICES="$SERVICES isdns"
+
+##############################################################################
+# Outgoing Server DNS
+#
+# Note: Only use this if this host runs a secondary DNS server for an external
+# primary. Restrict this to connections to the primary server.
+#
+
+SERVICES="$SERVICES osdns"
+
+##############################################################################
+# Incoming SYSLOG
+#
+# Note: Only use this to collect syslog messages from a bastion host.
+#
+
+# SERVICES="$SERVICES isyslog"
+
+# List of hosts which may connect to this host's SYSLOG server.
+# Blank means no hosts.
+# SYSLOG_CLIENTS=""
+
+##############################################################################
+# Outgoing SYSLOG
+#
+# Note: I can't think of any use for this.
+#
+
+# SERVICES="$SERVICES osyslog"
+
+# List of SYSLOG servers to which this network may connect.
+# Blank means no hosts.
+# SYSLOG_SERVERS=""
+
+##############################################################################
+# Incoming SNMP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES isnmp"
+
+# List of hosts which may connect to this host's SNMP server.
+# Blank means no hosts.
+# SNMP_CLIENTS=""
+
+##############################################################################
+# Outgoing SNMP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES osnmp"
+
+# List of SNMP servers to which this network may connect.
+# Blank means no hosts.
+# SNMP_SERVERS=""
+
+##############################################################################
+# Incoming SNMP TRAP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES isnmpt"
+
+# List of hosts which may connect to this host's SNMP trap server.
+# Blank means no hosts.
+# SNMP_TRAP_CLIENTS=""
+
+##############################################################################
+# Outgoing SNMP TRAP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES osnmpt"
+
+# List of SNMP trap servers to which this network may connect.
+# Blank means no hosts.
+# SNMP_TRAP_SERVERS=""
+
+##############################################################################
+# Incoming RIP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES irip"
+
+# List of hosts which may connect to this host's RIP server.
+# Blank means no hosts.
+# RIP_CLIENTS=""
+
+##############################################################################
+# Outgoing RIP
+#
+# Note: You probably don't want to permit this across a firewall.
+#
+
+# SERVICES="$SERVICES orip"
+
+# List of RIP servers to which this network may connect.
+# Blank means no hosts.
+# RIP_SERVERS=""
+
+##############################################################################
+# Incoming NTP
+#
+# Note: Only permit this if this host is running a public NTP server. If
+# it's an internal host, only permit connections from a proxy DNS server
+# running on a bastion host.
+
+# SERVICES="$SERVICES intp"
+
+# List of hosts which may connect to this host's NTP server.
+# Blank means all hosts.
+# NTP_CLIENTS=""
+
+##############################################################################
+# Outgoing NTP
+#
+# Note: Permit this if you synchronize your network from external NTP
+# servers. Restrict NTP connections to only those NTP servers.
+#
+
+# SERVICES="$SERVICES ontp"
+
+# List of NTP servers to which this network may connect.
+# Blank means no hosts.
+# NTP_SERVERS=""
+
+##############################################################################
+# Incoming SSH
+#
+# Note: Permit this rather than telnet or ftp.
+#
+
+# SERVICES="$SERVICES issh"
+
+# List of hosts which may connect to this host's SSH server.
+# Blank means no hosts.
+# SSH_CLIENTS=""
+
+##############################################################################
+# Outgoing SSH
+#
+# Note: Permit this rather than telnet or ftp. Restrict this to specific,
+# trusted hosts. Those hosts will be permitted to connect to any tcp port on
+# this host!
+#
+
+# SERVICES="$SERVICES ossh"
+
+# List of SSH servers to which this network may connect.
+# Blank means no hosts.
+# SSH_SERVERS=""
+
+##############################################################################
+# Incoming IDENT
+#
+# Note: Permitting this speeds up outgoing SMTP and FTP communications since
+# some SMTP and FTP servers attempt to identify their clients. However,
+# handing out local user names to anonymous FTP servers is not necessarily a
+# good idea. See man identd for details.
+#
+
+# SERVICES="$SERVICES iident"
+
+# List of hosts which may connect to this host's IDENT server.
+# Blank means all hosts.
+# IDENT_CLIENTS=""
+
+##############################################################################
+# Outgoing IDENT
+#
+# Note: It is safe to permit this except that it may be used by local
+# attackers to gain information about external hosts.
+#
+
+# SERVICES="$SERVICES oident"
+
+# List of IDENT servers to which this network may connect.
+# Blank means all hosts.
+# IDENT_SERVERS=""
+
+##############################################################################
+# Incoming PING
+#
+# Note: Only permit incoming pings from external hosts that have a reason to
+# be pinging this host (e.g. your ISP).
+#
+
+# SERVICES="$SERVICES iping"
+
+# List of hosts which may ping this network.
+# Blank means no hosts.
+# PING_CLIENTS=""
+
+##############################################################################
+# Outgoing PING
+#
+# Note: This can be used by local attackers to flood external hosts but it
+# is very useful. You can restrict outgoing PING to specific hosts if you
+# want.
+#
+
+SERVICES="$SERVICES oping"
+
+# List of hosts that this network may ping.
+# Blank means all hosts.
+# PING_SERVERS=""
+
+##############################################################################
+# Incoming TRACEROUTE
+#
+# Note: Only permit incoming traceroute from external hosts that have a
+# reason to be tracing this network (e.g. your ISP). You can also limit
+# which udp ports may be used for incoming traceroute (recommended).
+#
+
+# SERVICES="$SERVICES itrace"
+
+# List of hosts which may trace this network.
+# Blank means no hosts.
+# TRACEROUTE_CLIENTS=""
+
+# List of udp ports that may be used by an incoming traceroute.
+# Blank means all ports.
+# TRACEROUTE_PORTS=""
+
+##############################################################################
+# Outgoing TRACEROUTE
+#
+# Note: This can be used by local attackers to gather information about
+# external hosts but it is very useful. You can restrict outgoing TRACEROUTE
+# to specific hosts if you want.
+#
+
+SERVICES="$SERVICES otrace"
+
+# List of hosts that this network may trace.
+# Blank means all hosts.
+# TRACEROUTE_SERVERS=""
+
+##############################################################################
+# Other ICMP packets
+#
+# Note: This isn't configurable yet. Munge the [io]icmp chains as needed.
+#
+
+##############################################################################
+# Packet Fragments
+#
+# Note: This isn't configurable yet. Munge the [io]frag chains as needed.
+#
+
+# vim:set filetype=sh:
