@@ -26,9 +26,9 @@
 # description: firewall provides network security
 # lockfile: /var/lock/subsys/firewall
 # programs: /usr/local/sbin/{fwup,fwdown}
-# config: /etc/sysconfig/firewall.policy
+# config: /etc/firewall.policy
 #
-# 20000321 raf <raf2@zip.com.au>
+# 20000402 raf <raf2@zip.com.au>
 
 # Source function library
 [ -e /etc/rc.d/init.d/functions ] || exit 1
@@ -92,7 +92,7 @@ case "$1" in
 			exit 1
 		fi
 
-		/sbin/ipchains -L -v -n
+		/sbin/ipchains -L -v -n | /bin/more
 		;;
 
 	restart)

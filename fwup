@@ -26,10 +26,10 @@
 # (i.e. before /etc/rc.d/rc?.d/S??network start)
 # and after receiving a dynamic IP address.
 #
-# Define policy in /etc/sysconfig/firewall.policy
+# Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000321 raf <raf2@zip.com.au>
+# 20000402 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Start by checking that we've got everything we need
@@ -51,7 +51,7 @@ else
 	# Define a crappy version of redhat's action function
 
 	action() {
-		msg=$1; shift
+		local msg=$1; shift
 		echo -n "$msg "
 		$* && echo "[ OK ]" || echo "[ FAILED ]"
 	}
@@ -96,7 +96,7 @@ grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
 
 # Check that the policy file is available
 
-[ -z "$policy" ] && policy=/etc/sysconfig/firewall.policy
+[ -z "$policy" ] && policy=/etc/firewall.policy
 
 if [ ! -r $policy ]
 then
@@ -409,7 +409,7 @@ ipchains -X
 # chain <basename> <index>
 
 chain() {
-	name=$1; index=$2
+	local name=$1 index=$2
 	eval [ -z "\$chain_$name$index" ] && ipchains -N $name$index
 	eval chain_$name$index="1"
 }
@@ -420,7 +420,7 @@ chain() {
 # chains <basename> <index>
 
 chains() {
-	base=$1; index=$2
+	local base=$1 index=$2
 	chain i$base $index
 	chain o$base $index
 }
@@ -432,7 +432,7 @@ chains() {
 # Accept tcp src to dst on chain1 and accept tcp dst to src responses on chain2.
 
 tcp() {
-	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
 	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT
 	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j ACCEPT
 }
@@ -444,7 +444,7 @@ tcp() {
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		tcpm() {
-			chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+			local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
 			tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
 			tcp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
 		}
@@ -467,7 +467,7 @@ esac
 # be reject and target2 should be deny.
 
 tcpno() {
-	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6; target1=$7; target2=$8
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 target1=$7 target2=$8
 	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j $target1 $LOG
 	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j $target2 $LOG
 }
@@ -479,7 +479,7 @@ tcpno() {
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		tcpmno() {
-			chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6; target1=$7; target2=$8
+			local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 target1=$7 target2=$8
 			tcpno $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $target1 $target2
 			tcpno $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport $target1 $target2
 		}
@@ -499,7 +499,7 @@ esac
 # logging option, -l.
 
 tcpsyn() {
-	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	local chain=$1 srcaddr=$2 srcport=$3 dstaddr=$4 dstport=$5 target=$6 extra=$7
 	ipchains -A $chain -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -y -j $target $extra
 }
 
@@ -510,7 +510,7 @@ tcpsyn() {
 # On chain, accept udp src to dst. extra is for the logging option, -l.
 
 udp1() {
-	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; extra=$6
+	local chain=$1 srcaddr=$2 srcport=$3 dstaddr=$4 dstport=$5 extra=$6
 	ipchains -A $chain -p udp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT $extra
 }
 
@@ -521,7 +521,7 @@ udp1() {
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		udpm1() {
-			chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; extra=$6;
+			local chain=$1 srcaddr=$2 srcport=$3 dstaddr=$4 dstport=$5 extra=$6
 			udp1 $chain $srcaddr $srcport $dstaddr $dstport $extra
 			udp1 $chain $srcaddr $masq_ports $dstaddr $dstport $extra
 		}
@@ -540,7 +540,7 @@ esac
 # Accept udp src to dst on chain1 and udp dst to src on chain2.
 
 udp() {
-	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
 	udp1 $chain1 $srcaddr $srcport $dstaddr $dstport
 	udp1 $chain2 $dstaddr $dstport $srcaddr $srcport
 }
@@ -552,7 +552,7 @@ udp() {
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		udpm() {
-			chain1=$1; chain2=$2 srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+			local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
 			udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
 			udp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
 		}
@@ -571,7 +571,7 @@ esac
 # On chain, jump to target for udp src to dst. extra is for the logging option, -l.
 
 noudp1() {
-	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	local chain=$1 srcaddr=$2 srcport=$3 dstaddr=$4 dstport=$5 target=$6 extra=$7
 	ipchains -A $chain -p udp -s $srcaddr $srcport -d $dstaddr $dstport -j $target $extra
 }
 
@@ -582,7 +582,7 @@ noudp1() {
 # On chain, jump to target for udp src to dst. extra is for the logging option, -l.
 
 notcp1() {
-	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	local chain=$1 srcaddr=$2 srcport=$3 dstaddr=$4 dstport=$5 target=$6 extra=$7
 	ipchains -A $chain -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j $target $extra
 }
 
@@ -594,7 +594,7 @@ notcp1() {
 # option, -l.
 
 icmp() {
-	chain=$1; srcaddr=$2; dstaddr=$3; type=$4; extra=$5
+	local chain=$1 srcaddr=$2 dstaddr=$3 type=$4 extra=$5
 	ipchains -A $chain -p icmp -s $srcaddr $type -d $dstaddr -j ACCEPT $extra
 }
 
@@ -605,7 +605,7 @@ icmp() {
 # Accept other protocol from src to dst on chain1 and from dst to src on chain2.
 
 other() {
-	protocol=$1; chain1=$2; chain2=$3; srcaddr=$4; dstaddr=$5
+	local protocol=$1 chain1=$2 chain2=$3 srcaddr=$4 dstaddr=$5
 	ipchains -A $chain1 -p $protocol -s $srcaddr -d $dstaddr -j ACCEPT
 	ipchains -A $chain2 -p $protocol -s $dstaddr -d $srcaddr -j ACCEPT
 }
@@ -616,7 +616,8 @@ other() {
 # by services which accept access to/from all hosts by default.
 
 default_to_any() {
-	common=$1; index=$2; eval specific="\${common}_$index"
+	local common=$1 index=$2
+	eval local specific="\${common}_$index"
 	eval [ -z "\"\$$common\$$specific\"" ] && eval $specific="$any"
 }
 
@@ -625,17 +626,283 @@ default_to_any() {
 # equivalent. This is used by all services.
 
 combine() {
-	common=$1; index=$2; eval specific="\${common}_$index"
+	local common=$1 index=$2
+	eval local specific="\${common}_$index"
+	case "$fwdebug" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
+			eval echo combine $common $index = \$$common \$$specific >&2
+			;;
+	esac
 	eval echo \$$common \$$specific
 }
 
-# Appends the first argument to each of the remaining arguments and outputs them
+# Appends the first argument to the remaining arguments and outputs them
 
 number() {
-	num=$1; shift
+	local num=$1; shift
 	for item in $*
 	do
 		echo $item$num
+	done
+}
+
+# incoming_tcp_any
+#     create and populate rule chains that allow incoming connections from
+#     the addresses given in a policy variable (any host, by default) to a
+#     local tcp service
+# e.g.
+#     incoming_tcp_any smtp 25 SMTP_CLIENTS $i
+
+incoming_tcp_any()
+{
+	local service=$1 port=$2 policyclients=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="1024:"
+
+	chains i$service $index # incoming and outgoing rule chains for incoming $service
+
+	# Permit connections from specific external hosts
+	# If no clients are specified, permit all hosts
+
+	default_to_any $policyclients $index
+
+	for client in `combine $policyclients $index`
+	do
+		tcp ii$service$index oi$service$index $client $client_ports $self $port
+	done
+}
+
+# incoming_tcp_only
+#     create and populate rule chains that allow incoming connections from
+#     the specific hosts given in a policy variable to a local tcp service
+# e.g.
+#     incoming_tcp_only smtp 25 SMTP_CLIENTS $i
+
+incoming_tcp_only()
+{
+	local service=$1 port=$2 policyclients=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="1024:"
+
+	chains i$service $index # incoming and outgoing rule chains for incoming $service
+
+	# Permit connections from specific external hosts
+
+	for client in `combine $policyclients $index`
+	do
+		tcp ii$service$index oi$service$index $client $client_ports $self $port
+	done
+}
+
+# outgoing_tcp_any
+#     create and populate rule chains that allow outgoing connections from
+#     the local host and masqueraded internal hosts to an external tcp service
+#     on hosts given in a policy variable (any host, by default)
+# e.g.
+#     outgoing_tcp_any smtp 25 SMTP_SERVERS $i
+
+outgoing_tcp_any()
+{
+	local service=$1 port=$2 policyservers=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="$normal_ports"
+
+	chains o$service $index # outgoing and incoming rule chains for outgoing $service
+
+	# Permit connections to specific external hosts
+	# If no servers are specified, permit all hosts
+
+	default_to_any $policyservers $index
+
+	for server in `combine $policyservers $index`
+	do
+		tcpm oo$service$index io$service$index $self $client_ports $server $port
+	done
+}
+
+# outgoing_tcp_only
+#     create and populate rule chains that allow outgoing connections from
+#     the local host and masqueraded internal hosts to a tcp service on
+#     specific external hosts given in a policy variable
+# e.g.
+#     outgoing_tcp_only nntp 119 NNTP_SERVERS $i
+
+outgoing_tcp_only()
+{
+	local service=$1 port=$2 policyservers=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="$normal_ports"
+
+	chains o$service $index # outgoing and incoming rule chains for outgoing $service
+
+	# Permit connections to specific external hosts
+
+	for server in `combine $policyservers $index`
+	do
+		tcpm oo$service$index io$service$index $self $client_ports $server $port
+	done
+}
+
+# outgoing_tcp_exclusive
+#     create and populate rule chains that allow outgoing connections from
+#     the local host and masqueraded internal hosts to a tcp service on
+#     hosts given in a policy variable (any host, by default) except for
+#     specific ones given in another policy variable
+# e.g.
+#     outgoing_tcp_exclusive pop 109:110 POP_SERVERS EVIL_POP_SERVERS $i
+
+outgoing_tcp_exclusive()
+{
+	local service=$1 port=$2 policyservers=$3 policyexclude=$4 index=$5 client_ports=$6
+	[ -z "$client_ports" ] && client_ports="$normal_ports"
+
+	chains o$service $index # outgoing and incoming rule chains for outgoing $service
+
+	# Deny connections to specific external hosts
+
+	for server in `combine $policyexclude $index`
+	do
+		tcpmno oo$service$index io$service$index $self $client_ports $server $port REJECT DENY
+	done
+
+	# Permit connections to specific external hosts
+	# If no servers are specified, permit all hosts
+
+	default_to_any $policyservers $index
+
+	for server in `combine $policyservers $index`
+	do
+		tcpm oopop$index iopop$index $self $client_ports $server $port
+	done
+}
+
+# incoming_tcpudp_any
+#     create and populate rule chains that allow incoming connections from
+#     the addresses given in a policy variable (any host, by default) to a
+#     local tcp service and a local udp service with the same port number
+# e.g.
+#     incoming_tcpudp_any cdns 53 ICDNS_CLIENTS $i
+
+incoming_tcpudp_any() {
+	local service=$1 port=$2 policyclients=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="1024:"
+
+	chains i$service $index # incoming and outgoing rule chains for incoming $service
+
+	# Permit connections from specific external hosts
+	# If no clients are specified, permit all hosts
+
+	default_to_any $policyclients $index
+
+	for client in `combine $policyclients $index`
+	do
+		udp ii$service$i oi$service$i $client $client_ports $self $port
+		tcp ii$service$i oi$service$i $client $client_ports $self $port
+	done
+}
+
+# outgoing_tcpudp_only
+#     create and populate rule chains that allow outgoing connections from
+#     the local host and masqueraded internal hosts to a tcp service and a
+#     udp service with the same port number on specific external hosts given
+#     in a policy variable
+# e.g.
+#     outgoing_tcpudp_only cdns 53 OCDNS_SERVERS $i
+
+outgoing_tcpudp_only() {
+	local service=$1 port=$2 policyservers=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="$normal_ports"
+
+	chains o$service $index # incoming and outgoing rule chains for outgoing $service
+
+	# Permit connections to specific external hosts
+
+	for server in `combine $policyservers $index`
+	do
+		udpm oo$service$index io$service$index $self $client_ports $server $port
+		tcpm oo$service$index io$service$index $self $client_ports $server $port
+	done
+}
+
+# incoming_tcp_byport
+#     create and populate rule chains that allow incoming connections from any
+#     external host for a local tcp service on ports given in a policy variable
+# e.g.
+#     incoming_tcp_byport http INTERNAL_HTTP_PORTS $i
+
+incoming_tcp_byport() {
+	local service=$1 policyports=$2 index=$3
+
+	chains i$service $index # incoming and outgoing rule chains for incoming $service
+
+	# Permit connections from all hosts
+
+	eval policyports=\$$policyports
+
+	for port in $policyports
+	do
+		tcp ii$service$index oi$service$index $any 1024: $self $port
+	done
+}
+
+# outgoing_tcp_byport
+#     create and populate rule chains that allow connections to any external
+#     host for a tcp service on ports given in a policy variable (all ports,
+#     by default)
+# e.g.
+#     outgoing_tcp_byport http EXTERNAL_HTTP_PORTS $i
+
+outgoing_tcp_byport() {
+	local service=$1 policyports=$2 index=$3
+
+	chains o$service $index # outgoing and incoming rule chains for outgoing $service
+
+	# Permit connections to limited ports on all hosts
+	# If no ports are specified, permit all ports
+
+	eval policyports="\$$policyports"
+	[ -z "$policyports" ] && policyports=":"
+
+	for port in $policyports
+	do
+		tcpm oo$service$index io$service$index $self $normal_ports $any $port
+	done
+}
+
+# incoming_udp_only
+#     create and populate rule chains that allow incoming connections from
+#     the addresses given in a policy variable to a local udp service
+# e.g.
+#     incoming_udp_only snmp 161 SNMP_CLIENTS $i
+
+incoming_udp_only() {
+	local service=$1 port=$2 policyclients=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="1024:"
+
+	chains i$service $index # incoming and outgoing rule chains for incoming $service
+
+	# Permit connections from specific external hosts
+
+	for client in `combine $policyclients $index`
+	do
+		udp ii$service$i oi$service$i $client $client_ports $self $port
+	done
+}
+
+# outgoing_udp_only
+#     create and populate rule chains that allow outgoing connections from
+#     the local host and masqueraded internal hosts to a udp service on
+#     specific external hosts given in a policy variable
+# e.g.
+#     outgoing_udp_only snmp 161 SNMP_SERVERS $i
+
+outgoing_udp_only() {
+	local service=$1 port=$2 policyservers=$3 index=$4 client_ports=$5
+	[ -z "$client_ports" ] && client_ports="$normal_ports"
+
+	chains o$service $index # incoming and outgoing rule chains for outgoing $service
+
+	# Permit connections to specific external hosts
+
+	for server in `combine $policyservers $index`
+	do
+		udpm oo$service$index io$service$index $self $client_ports $server $port
 	done
 }
 
@@ -673,18 +940,7 @@ do
 # from the bastion host is required for this host.
 #
 
-chains icdns $i # incoming and outgoing rule chains for incoming Client DNS
-
-# Permit Client DNS connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any ICDNS_CLIENTS $i
-
-for client in `combine ICDNS_CLIENTS $i`
-do
-	udp iicdns$i oicdns$i $client 1024: $self 53
-	tcp iicdns$i oicdns$i $client 1024: $self 53
-done
+incoming_tcpudp_any cdns 53 ICDNS_CLIENTS $i
 
 ##############################################################################
 # Outgoing Client DNS
@@ -697,15 +953,7 @@ done
 # host.
 #
 
-chains ocdns $i # incoming and outgoing rule chains for outgoing Client DNS
-
-# Permit DNS requests to specific external hosts
-
-for server in `combine OCDNS_SERVERS $i`
-do
-	udpm oocdns$i iocdns$i $self $normal_ports $server 53
-	tcpm oocdns$i iocdns$i $self $normal_ports $server 53
-done
+outgoing_tcpudp_only cdns 53 OCDNS_SERVERS $i
 
 ##############################################################################
 # Incoming Server DNS
@@ -718,18 +966,7 @@ done
 # or BIND 8 with "query-source port 53".
 #
 
-chains isdns $i # incoming and outgoing rule chains for incoming Server DNS
-
-# Permit Server DNS connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any ISDNS_CLIENTS $i
-
-for client in `combine ISDNS_CLIENTS $i`
-do
-	udp iisdns$i oisdns$i $client 53 $self 53
-	tcp iisdns$i oisdns$i $client 1024: $self 53
-done
+incoming_tcpudp_any sdns 53 ISDNS_CLIENTS $i 53
 
 ##############################################################################
 # Outgoing Server DNS
@@ -741,15 +978,7 @@ done
 # access to all hosts.
 #
 
-chains osdns $i # outgoing and incoming rule chains for outgoing Server DNS
-
-# Permit Server DNS requests to specific external hosts
-
-for server in `combine OSDNS_SERVERS $i`
-do
-	udpm oosdns$i iosdns$i $self 53 $server 53
-	tcpm oosdns$i iosdns$i $self $normal_ports $server 53
-done
+outgoing_tcpudp_only sdns 53 OSDNS_SERVERS $i 53
 
 ##############################################################################
 # Incoming SMTP
@@ -758,17 +987,7 @@ done
 # Otherwise, only permit connections from the bastion host and run smap.
 #
 
-chains ismtp $i # incoming and outgoing rule chains for incoming SMTP
-
-# Permit SMTP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SMTP_CLIENTS $i
-
-for client in `combine SMTP_CLIENTS $i`
-do
-	tcp iismtp$i oismtp$i $client 1024: $self 25
-done
+incoming_tcp_any smtp 25 SMTP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SMTP
@@ -777,17 +996,7 @@ done
 # only permit connections to the bastion host.
 #
 
-chains osmtp $i # outgoing and incoming rule chains for outgoing SMTP
-
-# Permit SMTP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any SMTP_SERVERS $i
-
-for server in `combine SMTP_SERVERS $i`
-do
-	tcpm oosmtp$i iosmtp$i $self $normal_ports $server 25
-done
+outgoing_tcp_any smtp 25 SMTP_SERVERS $i
 
 ##############################################################################
 # Incoming POP
@@ -796,17 +1005,7 @@ done
 # and private mail will be transmitted over the net in plaintext.
 #
 
-chains ipop $i # incoming and outgoing rule chains for incoming POP
-
-# Permit POP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any POP_CLIENTS $i
-
-for client in `combine POP_CLIENTS $i`
-do
-	tcp iipop$i oipop$i $client 1024: $self 109:110
-done
+incoming_tcp_any pop 109:110 POP_CLIENTS $i
 
 ##############################################################################
 # Outgoing POP
@@ -817,26 +1016,7 @@ done
 # sensitive POP access.
 #
 
-chains opop $i # outgoing and incoming rule chains for outgoing POP
-
-# Deny POP connections to specific external hosts where the user name and
-# password required to connect or the contents of private mail is too
-# sensitive to be transmitted over the net in plaintext
-
-for server in `combine EVIL_POP_SERVERS $i`
-do
-	tcpmno oopop$i iopop$i $self $normal_ports $server 109:110 REJECT DENY
-done
-
-# Permit POP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any POP_SERVERS $i
-
-for server in `combine POP_SERVERS $i`
-do
-	tcpm oopop$i iopop$i $self $normal_ports $server 109:110
-done
+outgoing_tcp_exclusive pop 109:110 POP_SERVERS EVIL_POP_SERVERS $i
 
 ##############################################################################
 # Incoming IMAP
@@ -847,17 +1027,7 @@ done
 # be transmitted over the net in plaintext.
 #
 
-chains iimap $i # incoming and outgoing rule chains for incoming IMAP
-
-# Permit IMAP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any IMAP_CLIENTS $i
-
-for client in `combine IMAP_CLIENTS $i`
-do
-	tcp iiimap$i oiimap$i $client 1024: $self 143
-done
+incoming_tcp_any imap 143 IMAP_CLIENTS $i
 
 ##############################################################################
 # Outgoing IMAP
@@ -866,127 +1036,46 @@ done
 # IMAP servers don't support and use the "AUTHENTICATE" command instead of the
 # "LOGIN" command since user names, passwords and people's private mail will
 # be transmitted over the net in plaintext. Use $EVIL_IMAP_SERVERS to deny
-# such uses while allowing less sensitive IMAP access.
+# such uses while allowing secure IMAP access.
 #
 
-chains oimap $i # outgoing and incoming rule chains for outgoing IMAP
-
-# Deny IMAP connections to specific external hosts where the user name and
-# password required to connect or the contents of private mail is too
-# sensitive to be transmitted over the net in plaintext and it is not known
-# that the external IMAP server and the internal IMAP clients support and use
-# the "AUTHENTICATE" command
-
-for server in `combine EVIL_IMAP_SERVERS $i`
-do
-	tcpmno ooimap$i ioimap$i $self $normal_ports $server 143 REJECT DENY
-done
-
-# Permit IMAP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any IMAP_SERVERS $i
-
-for server in `combine IMAP_SERVERS $i`
-do
-	tcpm ooimap$i ioimap$i $self $normal_ports $server 143
-done
+outgoing_tcp_exclusive imap 143 IMAP_SERVERS EVIL_IMAP_SERVERS $i
 
 ##############################################################################
 # Incoming SSL-POP
 #
 
-chains ispop $i # incoming and outgoing rule chains for incoming SSL-POP
-
-# Permit SSL-POP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SPOP_CLIENTS $i
-
-for client in `combine SPOP_CLIENTS $i`
-do
-	tcp iispop$i oispop$i $client 1024: $self 995
-done
+incoming_tcp_any spop 995 SPOP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SSL-POP
 #
 
-chains ospop $i # outgoing and incoming rule chains for outgoing SSL-POP
-
-# Permit SSL-POP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any SPOP_SERVERS $i
-
-for server in `combine SPOP_SERVERS $i`
-do
-	tcpm oospop$i iospop$i $self $normal_ports $server 995
-done
+outgoing_tcp_any spop 995 SPOP_SERVERS $i
 
 ##############################################################################
 # Incoming SSL-IMAP
 #
 
-chains isimap $i # incoming and outgoing rule chains for incoming SSL-IMAP
-
-# Permit SSL-IMAP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SIMAP_CLIENTS $i
-
-for client in `combine SIMAP_CLIENTS $i`
-do
-	tcp iisimap$i oisimap$i $client 1024: $self 993
-done
+incoming_tcp_any simap 993 SIMAP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SSL-IMAP
 #
 
-chains osimap $i # outgoing and incoming rule chains for outgoing SSL-IMAP
-
-# Permit SSL-IMAP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any SIMAP_SERVERS $i
-
-for server in `combine SIMAP_SERVERS $i`
-do
-	tcpm oosimap$i iosimap$i $self $normal_ports $server 993
-done
+outgoing_tcp_any simap 993 SIMAP_SERVERS $i
 
 ##############################################################################
 # Incoming SSL-LDAP
 #
 
-chains isldap $i # incoming and outgoing rule chains for incoming SSL-LDAP
-
-# Permit SSL-LDAP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SLDAP_CLIENTS $i
-
-for client in `combine SLDAP_CLIENTS $i`
-do
-	tcp iisldap$i oisldap$i $client 1024: $self 636
-done
+incoming_tcp_any sldap 636 SLDAP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SSL-LDAP
 #
 
-chains osldap $i # outgoing and incoming rule chains for outgoing SSL-LDAP
-
-# Permit SSL-LDAP connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any SLDAP_SERVERS $i
-
-for server in `combine SLDAP_SERVERS $i`
-do
-	tcpm oosldap$i iosldap$i $self $normal_ports $server 636
-done
+outgoing_tcp_any sldap 636 SLDAP_SERVERS $i
 
 ##############################################################################
 # Incoming SSH1
@@ -995,18 +1084,7 @@ done
 # specific, trusted hosts.
 #
 
-chains issh1 $i # incoming and outgoing rule chains for incoming SSH1
-
-# Permit SSH1 connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SSH1_CLIENTS $i
-
-for client in `combine SSH1_CLIENTS $i`
-do
-	tcp iissh1$i oissh1$i $client 1024: $self 22
-	tcp iissh1$i oissh1$i $client $SSH1_PORTS $self 22
-done
+incoming_tcp_any ssh1 22 SSH1_CLIENTS $i $SSH1_PORTS
 
 ##############################################################################
 # Outgoing SSH1
@@ -1015,18 +1093,7 @@ done
 # specific, trusted hosts.
 #
 
-chains ossh1 $i # outgoing and incoming rule chains for outgoing SSH1
-
-# Permit SSH1 connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any SSH1_SERVERS $i
-
-for server in `combine SSH1_SERVERS $i`
-do
-	tcpm oossh1$i iossh1$i $self $normal_ports $server 22
-	tcp oossh1$i iossh1$i $self $SSH1_PORTS $server 22
-done
+outgoing_tcp_any ssh1 22 SSH1_SERVERS $i $SSH1_PORTS
 
 ##############################################################################
 # Incoming SSH2
@@ -1035,37 +1102,16 @@ done
 # specific, trusted hosts.
 #
 
-chains issh2 $i # incoming and outgoing rule chains for incoming SSH2
-
-# Permit SSH2 connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SSH2_CLIENTS $i
-
-for client in `combine SSH2_CLIENTS $i`
-do
-	tcp iissh2$i oissh2$i $client 1024: $self 22
-done
+incoming_tcp_any ssh2 22 SSH2_CLIENTS $i
 
 ##############################################################################
 # Outgoing SSH2
 #
 # Note: Permit this rather than telnet or ftp. You can restrict this to
-# specific, trusted hosts. Those hosts will be permitted to connect to
-# unprivileged tcp ports on this host.
+# specific, trusted hosts.
 #
 
-chains ossh2 $i # outgoing and incoming rule chains for outgoing SSH2
-
-# Permit SSH2 connections to specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any SSH2_SERVERS $i
-
-for server in `combine SSH2_SERVERS $i`
-do
-	tcpm oossh2$i iossh2$i $self $normal_ports $server 22
-done
+outgoing_tcp_any ssh2 22 SSH2_SERVERS $i
 
 ##############################################################################
 # Incoming FTP
@@ -1077,17 +1123,7 @@ done
 # FTP server.
 #
 
-chains iftp $i # incoming and outgoing rule chains for incoming FTP
-
-# Permit FTP connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any FTP_CLIENTS $i
-
-for client in `combine FTP_CLIENTS $i`
-do
-	tcp iiftp$i oiftp$i $client 1024: $self 21
-done
+incoming_tcp_any ftp 21 FTP_CLIENTS $i
 
 ##############################################################################
 # Incoming Normal FTP
@@ -1254,14 +1290,7 @@ done
 # users use ssh instead.
 #
 
-chains iteln $i # incoming and outgoing rule chains for incoming TELNET
-
-# Permit TELNET connections from specific external hosts
-
-for client in `combine TELNET_CLIENTS $i`
-do
-	tcp iiteln$i oiteln$i $client 1024: $self 23
-done
+incoming_tcp_only teln 23 TELNET_CLIENTS $i
 
 ##############################################################################
 # Outgoing TELNET
@@ -1271,23 +1300,7 @@ done
 # users use ssh instead.
 #
 
-chains oteln $i # outgoing and incoming rule chains for outgoing TELNET
-
-# Deny TELNET connections to specific external hosts where the user name and
-# password required to connect or the contents of session is too sensitive to
-# be transmitted over the net in plaintext
-
-for server in `combine EVIL_TELNET_SERVERS $i`
-do
-	tcpmno ooteln$i ioteln$i $self $normal_ports $server 23 REJECT DENY
-done
-
-# Permit TELNET connections to specific external hosts
-
-for server in `combine TELNET_SERVERS $i`
-do
-	tcpm ooteln$i ioteln$i $self $normal_ports $server 23
-done
+outgoing_tcp_exclusive teln 23 TELNET_SERVERS EVIL_TELNET_SERVERS $i
 
 ##############################################################################
 # Incoming HTTP
@@ -1295,14 +1308,7 @@ done
 # Note: Only run public HTTP servers on bastion hosts.
 #
 
-chains ihttp $i # incoming and outgoing rule chains for incoming HTTP
-
-# Permit HTTP connections from all hosts
-
-for port in $INTERNAL_HTTP_PORTS
-do
-	tcp iihttp$i oihttp$i $any 1024: $self $port
-done
+incoming_tcp_byport http INTERNAL_HTTP_PORTS $i
 
 ##############################################################################
 # Outgoing HTTP
@@ -1315,17 +1321,7 @@ done
 # bastion host anyway.
 #
 
-chains ohttp $i # outgoing and incoming rule chains for outgoing HTTP
-
-# Permit HTTP connections to limited ports on all hosts
-# If no ports are specified, permit all ports
-
-[ -z "$EXTERNAL_HTTP_PORTS" ] && EXTERNAL_HTTP_PORTS=":"
-
-for port in $EXTERNAL_HTTP_PORTS
-do
-	tcpm oohttp$i iohttp$i $self $normal_ports $any $port
-done
+outgoing_tcp_byport http EXTERNAL_HTTP_PORTS $i
 
 ##############################################################################
 # Incoming HTTPS
@@ -1333,14 +1329,7 @@ done
 # Note: Only run public HTTPS servers on bastion hosts.
 #
 
-chains ihttps $i # incoming and outgoing rule chains for incoming HTTPS
-
-# Permit HTTPS connections from all hosts
-
-for port in $INTERNAL_HTTPS_PORTS
-do
-	tcp iihttps$i oihttps$i $any 1024: $self $port
-done
+incoming_tcp_byport https INTERNAL_HTTPS_PORTS $i
 
 ##############################################################################
 # Outgoing HTTPS
@@ -1352,17 +1341,7 @@ done
 # but you'd be better off using a caching HTTPS proxy on a bastion host anyway.
 #
 
-chains ohttps $i # outgoing and incoming rule chains for outgoing HTTPS
-
-# Permit HTTPS connections to limited ports on all hosts
-# If no ports are specified, permit all ports
-
-[ -z "$EXTERNAL_HTTPS_PORTS" ] && EXTERNAL_HTTPS_PORTS=":"
-
-for port in $EXTERNAL_HTTPS_PORTS
-do
-	tcpm oohttps$i iohttps$i $self $normal_ports $any $port
-done
+outgoing_tcp_byport https EXTERNAL_HTTPS_PORTS $i
 
 ##############################################################################
 # Incoming HTTP PROXY
@@ -1409,14 +1388,7 @@ done
 # host and only permit connections from trusted external NNTP servers.
 #
 
-chains inntp $i # incoming and outgoing rule chains for incoming NNTP
-
-# Permit NNTP conections from specific external hosts
-
-for client in `combine NNTP_CLIENTS $i`
-do
-	tcp iinntp$i oinntp$i $client 1024: $self 119
-done
+incoming_tcp_only nntp 119 NNTP_CLIENTS $i
 
 ##############################################################################
 # Outgoing NNTP
@@ -1424,14 +1396,7 @@ done
 # Note: Only permit NNTP connections to trusted external NNTP servers.
 #
 
-chains onntp $i # outgoing and incoming rule chains for outgoing NNTP
-
-# Permit NNTP connections to specific external hosts
-
-for server in `combine NNTP_SERVERS $i`
-do
-	tcpm oonntp$i ionntp$i $self $normal_ports $server 119
-done
+outgoing_tcp_only nntp 119 NNTP_SERVERS $i
 
 ##############################################################################
 # Incoming RSYNC
@@ -1439,14 +1404,7 @@ done
 # Note: Don't allow this over a firewall. Use rsync over ssh instead.
 #
 
-chains irsync $i # incoming and outgoing rule chains for incoming RSYNC
-
-# Permit RSYNC connections from specific external hosts
-
-for client in `combine RSYNC_CLIENTS $i`
-do
-	tcp iirsync$i oirsync$i $client 1024: $self 873
-done
+incoming_tcp_only rsync 873 RSYNC_CLIENTS $i
 
 ##############################################################################
 # Outgoing RSYNC
@@ -1454,14 +1412,7 @@ done
 # Note: Don't allow this over a firewall. Use rsync over ssh instead.
 #
 
-chains orsync $i # outgoing and incoming rule chains for outgoing RSYNC
-
-# Permit RSYNC connections to specific external hosts
-
-for server in `combine RSYNC_SERVERS $i`
-do
-	tcpm oorsync$i iorsync$i $self $normal_ports $server 873
-done
+outgoing_tcp_only rsync 873 RSYNC_SERVERS $i
 
 ##############################################################################
 # Incoming CVS
@@ -1469,14 +1420,7 @@ done
 # Note: Don't allow this over a firewall. Use rsync over ssh instead.
 #
 
-chains icvs $i # incoming and outgoing rule chains for incoming CVS
-
-# Permit CVS connections from specific external hosts
-
-for client in `combine CVS_CLIENTS $i`
-do
-	tcp iicvs$i oicvs$i $client 1024: $self 2401
-done
+incoming_tcp_only cvs 2401 CVS_CLIENTS $i
 
 ##############################################################################
 # Outgoing CVS
@@ -1484,66 +1428,31 @@ done
 # Note: Don't allow this over a firewall. Use rsync over ssh instead.
 #
 
-chains ocvs $i # outgoing and incoming rule chains for outgoing CVS
-
-# Permit CVS connections to specific external hosts
-
-for server in `combine CVS_SERVERS $i`
-do
-	tcpm oocvs$i iocvs$i $self $normal_ports $server 2401
-done
+outgoing_tcp_only cvs 2401 CVS_SERVERS $i
 
 ##############################################################################
 # Incoming GNATS
 #
 
-chains ignats $i # incoming and outgoing rule chains for incoming GNATS
-
-# Permit GNATS connections from specific external hosts
-
-for client in `combine GNATS_CLIENTS $i`
-do
-	tcp iignats$i oignats$i $client 1024: $self 1529
-done
+incoming_tcp_only gnats 1529 GNATS_CLIENTS $i
 
 ##############################################################################
 # Outgoing GNATS
 #
 
-chains ognats $i # outgoing and incoming rule chains for outgoing GNATS
-
-# Permit GNATS connections to specific external hosts
-
-for server in `combine GNATS_SERVERS $i`
-do
-	tcpm oognats$i iognats$i $self $normal_ports $server 1529
-done
+outgoing_tcp_only gnats 1529 GNATS_SERVERS $i
 
 ##############################################################################
 # Incoming MYSQL
 #
 
-chains imysql $i # incoming and outgoing rule chains for incoming MYSQL
-
-# Permit MYSQL connections from specific external hosts
-
-for client in `combine MYSQL_CLIENTS $i`
-do
-	tcp iimysql$i oimysql$i $client 1024: $self 3306
-done
+incoming_tcp_only mysql 3306 MYSQL_CLIENTS $i
 
 ##############################################################################
 # Outgoing MYSQL
 #
 
-chains omysql $i # outgoing and incoming rule chains for outgoing MYSQL
-
-# Permit MYSQL connections to specific external hosts
-
-for server in `combine MYSQL_SERVERS $i`
-do
-	tcpm oomysql$i iomysql$i $self $normal_ports $server 3306
-done
+outgoing_tcp_only mysql 3306 MYSQL_SERVERS $i
 
 ##############################################################################
 # Incoming SMB
@@ -1595,17 +1504,7 @@ done
 # idea across a firewall.
 #
 
-chains iirc $i # incoming and outgoing rule chains for incoming IRC
-
-# Permit IRC connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any IRC_CLIENTS $i
-
-for client in `combine IRC_CLIENTS $i`
-do
-	tcp iiirc$i oiirc$i $client 1024: $self 6667
-done
+incoming_tcp_any irc 6667 IRC_CLIENTS $i
 
 ##############################################################################
 # Outgoing IRC
@@ -1616,17 +1515,7 @@ done
 # firewall.
 #
 
-chains oirc $i # outgoing and incoming rule chains for outgoing IRC
-
-# Permit IRC connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any IRC_SERVERS $i
-
-for server in `combine IRC_SERVERS $i`
-do
-	tcpm ooirc$i ioirc$i $self $normal_ports $server 6667
-done
+outgoing_tcp_any irc 6667 IRC_SERVERS $i
 
 ##############################################################################
 # Incoming ICQ
@@ -1775,14 +1664,7 @@ done
 # If you must run a public GOPHER server, run it on a bastion host.
 #
 
-chains igoph $i # incoming and outgoing rule chains for incoming GOPHER
-
-# Permit GOPHER connections from all hosts
-
-for port in $INTERNAL_GOPHER_PORTS
-do
-	tcp iigoph$i oigoph$i $any 1024: $self $port
-done
+incoming_tcp_byport goph INTERNAL_GOPHER_PORTS $i
 
 ##############################################################################
 # Outgoing GOPHER
@@ -1790,17 +1672,7 @@ done
 # Note: Don't use this. Use an HTTP-GOPHER gateway.
 #
 
-chains ogoph $i # outgoing and incoming rule chains for outgoing GOPHER
-
-# Permit GOPHER connections to limited ports on all hosts
-# If no ports are specified, permit all ports
-
-[ -z "$EXTERNAL_GOPHER_PORTS" ] && EXTERNAL_GOPHER_PORTS=":"
-
-for port in $EXTERNAL_GOPHER_PORTS
-do
-	tcpm oogoph$i iogoph$i $self $normal_ports $any $port
-done
+outgoing_tcp_byport goph EXTERNAL_GOPHER_PORTS $i
 
 ##############################################################################
 # Incoming WAIS
@@ -1809,14 +1681,7 @@ done
 # If you must run a public WAIS server, run it on a bastion host.
 #
 
-chains iwais $i # incoming and outgoing rule chains for incoming WAIS
-
-# Permit WAIS connections from all hosts
-
-for port in $INTERNAL_WAIS_PORTS
-do
-	tcp iiwais$i oiwais$i $any 1024: $self $port
-done
+incoming_tcp_byport wais INTERNAL_WAIS_PORTS $i
 
 ##############################################################################
 # Outgoing WAIS
@@ -1824,17 +1689,7 @@ done
 # Note: Don't use this. Use an HTTP-WAIS gateway instead.
 #
 
-chains owais $i # outgoing and incoming rule chains for outgoing WAIS
-
-# Permit WAIS connections to limited ports on all hosts
-# If no ports are specified, permit all ports
-
-[ -z "$EXTERNAL_WAIS_PORTS" ] && EXTERNAL_WAIS_PORTS=":"
-
-for port in $EXTERNAL_WAIS_PORTS
-do
-	tcpm oowais$i iowais$i $self $normal_ports $any $port
-done
+outgoing_tcp_byport wais EXTERNAL_WAIS_PORTS $i
 
 ##############################################################################
 # Outgoing ARCHIE
@@ -1843,14 +1698,7 @@ done
 # permit this, restrict it to the well known ARCHIE servers.
 #
 
-chains oarch $i # outgoing and incoming rule chains for outgoing ARCHIE
-
-# Permit ARCHIE connections to specific external hosts
-
-for server in `combine ARCHIE_SERVERS $i`
-do
-	udpm ooarch$i ioarch$i $self $normal_ports $server 1525
-done
+outgoing_udp_only arch 1525 ARCHIE_SERVERS $i
 
 ##############################################################################
 # Incoming FINGER
@@ -1858,17 +1706,7 @@ done
 # Note: Only run a public (secure) FINGER server on a bastion host.
 #
 
-chains ifing $i # incoming and outgoing rule chains for incoming FINGER
-
-# Permit FINGER connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any FINGER_CLIENTS $i
-
-for client in `combine FINGER_CLIENTS $i`
-do
-	tcp iifing$i oifing$i $client 1024: $self 79
-done
+incoming_tcp_any fing 79 FINGER_CLIENTS $i
 
 ##############################################################################
 # Outgoing FINGER
@@ -1878,17 +1716,7 @@ done
 # themselves reprogrammed.
 #
 
-chains ofing $i # outgoing and incoming rule chains for outgoing FINGER
-
-# Permit FINGER connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any FINGER_SERVERS $i
-
-for server in `combine FINGER_SERVERS $i`
-do
-	tcpm oofing$i iofing$i $self $normal_ports $server 79
-done
+outgoing_tcp_any fing 79 FINGER_SERVERS $i
 
 ##############################################################################
 # Outgoing WHOIS
@@ -1897,17 +1725,7 @@ done
 # Do not run a WHOIS server.
 #
 
-chains owhois $i # outgoing and incoming rule chains for outgoing WHOIS
-
-# Permit WHOIS connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any WHOIS_SERVERS $i
-
-for server in `combine WHOIS_SERVERS $i`
-do
-	tcpm oowhois$i iowhois$i $self $normal_ports $server 43
-done
+outgoing_tcp_any whois 43 WHOIS_SERVERS $i
 
 ##############################################################################
 # Incoming AUTH
@@ -1918,17 +1736,7 @@ done
 # good idea. See man identd for details.
 #
 
-chains iauth $i # incoming and outgoing rule chains for incoming AUTH
-
-# Permit AUTH connections from specific external hosts
-# If no clients are specified, permit all hosts
-
-default_to_any AUTH_CLIENTS $i
-
-for client in `combine AUTH_CLIENTS $i`
-do
-	tcp iiauth$i oiauth$i $client 1024: $self 113
-done
+incoming_tcp_any auth 113 AUTH_CLIENTS $i
 
 ##############################################################################
 # Outgoing AUTH
@@ -1937,17 +1745,7 @@ done
 # attackers to gain information about external hosts.
 #
 
-chains oauth $i # outgoing and incoming rule chains for outgoing AUTH
-
-# Permit AUTH connections to specific external hosts
-# If no servers are specified, permit all hosts
-
-default_to_any AUTH_SERVERS $i
-
-for server in `combine AUTH_SERVERS $i`
-do
-	tcpm ooauth$i ioauth$i $self $normal_ports $server 113
-done
+outgoing_tcp_any auth 113 AUTH_SERVERS $i
 
 ##############################################################################
 # Incoming SYSLOG
@@ -2021,7 +1819,7 @@ do
 	udp1 ocdhcp$i $broadcast_src 68 $server 67
 done
 
-if [ -n "`combine DHCP_SERVERS ] $i`" ]
+if [ -n "`combine DHCP_SERVERS $i`" ]
 then
 	# Incoming address update
 	udp1 icdhcp$i $broadcast_src 67 $broadcast_dst 68
@@ -2035,16 +1833,7 @@ fi
 # If you do, only allow connections from trusted SNMP management stations.
 #
 
-chains isnmp $i # incoming and outgoing rule chains for incoming SNMP
-
-# Permit SNMP connections from specific external hosts
-
-for client in `combine SNMP_CLIENTS $i`
-do
-	# External management station (client) contacting internal SNMP network device (server)
-	udp iisnmp$i oisnmp$i $client 1024: $self 161
-	tcp iisnmp$i oisnmp$i $client 1024: $self 161
-done
+incoming_udp_only snmp 161 SNMP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SNMP
@@ -2053,16 +1842,7 @@ done
 # If you do, only allow connections to trusted SNMP network devices.
 #
 
-chains osnmp $i # outgoing and incoming rule chains for outgoing SNMP
-
-# Permit SNMP connections to specific external hosts
-
-for server in `combine SNMP_SERVERS $i`
-do
-	# Internal management station (client) contacting external SNMP network device (server)
-	udpm oosnmp$i iosnmp$i $self $normal_ports $server 161
-	tcpm oosnmp$i iosnmp$i $self $normal_ports $server 161
-done
+outgoing_udp_only snmp 161 SNMP_SERVERS $i
 
 ##############################################################################
 # Incoming SNMP TRAP
@@ -2071,16 +1851,7 @@ done
 # If you do, only allow connections from trusted SNMP management stations.
 #
 
-chains isnmpt $i # incoming and outgoing rule chains for incoming SNMP TRAP
-
-# Permit SNMP trap connections from specific external hosts
-
-for client in `combine SNMP_TRAP_CLIENTS $i`
-do
-	# External management station (client) contacting internal SNMP network device (trap server)
-	udp iisnmpt$i oisnmpt$i $client 1024: $self 162
-	tcp iisnmpt$i oisnmpt$i $client 1024: $self 162
-done
+incoming_udp_only snmpt 162 SNMP_TRAP_CLIENTS $i
 
 ##############################################################################
 # Outgoing SNMP TRAP
@@ -2089,16 +1860,7 @@ done
 # If you do, only allow connections to trusted SNMP network devices.
 #
 
-chains osnmpt $i # outgoing and incoming rule chains for outgoing SNMP TRAP
-
-# Permit SNMP trap connections to specific external hosts
-
-for server in `combine SNMP_TRAP_SERVERS $i`
-do
-	# Internal management station (client) contacting external SNMP network device (trap server)
-	udpm oosnmpt$i iosnmpt$i $self $normal_ports $server 162
-	tcpm oosnmpt$i iosnmpt$i $self $normal_ports $server 162
-done
+outgoing_udp_only snmpt 162 SNMP_TRAP_SERVERS $i
 
 ##############################################################################
 # Incoming BGP
@@ -2107,14 +1869,7 @@ done
 # If you do, only allow connections from trusted BGP peers.
 #
 
-chains ibgp $i # incoming and outgoing rule chains for incoming BGP
-
-# Permit BGP connections from specific external hosts
-
-for client in `combine BGP_CLIENTS $i`
-do
-	tcp iibgp$i oibgp$i $client 1024: $self 179
-done
+incoming_tcp_only bgp 179 BGP_CLIENTS $i
 
 ##############################################################################
 # Outgoing BGP
@@ -2123,14 +1878,7 @@ done
 # If you do, only allow connections to trusted BGP peers.
 #
 
-chains obgp $i # outgoing and incoming rule chains for outgoing BGP
-
-# Permit BGP connections to specific external hosts
-
-for server in `combine BGP_SERVERS $i`
-do
-	tcpm oobgp$i iobgp$i $self $normal_ports $server 179
-done
+outgoing_tcp_only bgp 179 BGP_SERVERS $i
 
 ##############################################################################
 # OSPF
@@ -2227,7 +1975,7 @@ done
 ##############################################################################
 # Incoming PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols.
+# Note: You must have pptp(47) in /etc/protocols to use this.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -2250,7 +1998,7 @@ fi
 ##############################################################################
 # Outgoing PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols.
+# Note: You must have pptp(47) in /etc/protocols to use this.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -2273,8 +2021,7 @@ fi
 ##############################################################################
 # Incoming IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
-# /etc/services.
+# Note: You must have esp(50) and ah(51) in /etc/protocols to use this.
 #
 
 if [ -n "$ESP_PROTOCOL" -a -n "$AH_PROTOCOL" ]
@@ -2297,8 +2044,7 @@ fi
 ##############################################################################
 # Outgoing IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
-# /etc/services.
+# Note: You must have esp(50) and ah(51) in /etc/protocols to use this.
 #
 
 if [ -n "$ESP_PROTOCOL" -a -n "$AH_PROTOCOL" ]
@@ -2478,6 +2224,27 @@ if [ "$self" != "$any" ]
 then
 	ipchains -A ispoof$i -s $self -j DENY $LOG
 fi
+
+##############################################################################
+# Other TCP Services
+#
+# Note: This only works for applications with a simple, single-connection
+# application protocol.
+#
+
+# List of ports on this host that any external host can connect to
+
+for port in $OTHER_INCOMING_TCP_SERVICES
+do
+	incoming_tcp_any user $port any $i
+done
+
+# List of ports on any host that this network may connect to
+
+for port in $OTHER_OUTGOING_TCP_SERVICES
+do
+	outgoing_tcp_any user $port any $i
+done
 
 ##############################################################################
 # No Log

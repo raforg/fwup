@@ -17,7 +17,8 @@ interfaces as you like.
 There is primitive support for IP masquerading. Masqueraded hosts can engage
 in permitted outgoing services (except OSPF, DHCP, PPTP and IPSEC) exactly
 like the current host and are bound by the same restrictions. Distinct policies
-for internal hosts isn't implemented because there's no NAT support yet.
+for internal hosts isn't implemented until the next release. Then comes NAPT
+support.
 
 The policy is specified in the firewall.policy file.
 
@@ -119,8 +120,8 @@ manually). Everything else requires ipchains which is a Linux-2.2 feature.
 
 Install (as root):
 
-    tar xzf firewall-20000321.tar.gz
-    cd firewall-20000321
+    tar xzf firewall-20000402.tar.gz
+    cd firewall-20000402
     make install
 
 Edit the sample policy file to reflect your filtering policy and install it:
@@ -137,12 +138,16 @@ For more details:
     make help
 
 Note: Don't trust it. Test it. Many services haven't been tested yet.
-Please send bug reports, criticism, comments, suggestions, patches, and
-pointers to more information.
+Please send success reports, bug reports, criticism, comments, suggestions,
+patches, pointers to more information, ...
 
 After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
 your untrusted interfaces (as root from the inside and the outside) to make
 sure that you got what you wanted. If there are any surprises, investigate.
+
+If your untrusted interface(s) change IP address, reload the firewall in a
+script that executes as soon as each new IP address is established (e.g.
+/etc/ppp/ip-up.local or /etc/dhcp/*).
 
 COPYING
 ~~~~~~~
@@ -202,13 +207,26 @@ HISTORY
     - Fixed bug: was masquerading traffic between multiple internal networks
     - Added the dns2ip utility to translate domain names in policy files into ip addresses
 
+20000402
+
+    - Shortened/cleaned up fwup a bit with more functions
+    - Fixed bug: SSH1 rules were allowing SSH2 as well
+    - Fixed doco: outgoing SSH2 note was stupid
+    - Fixed bug: SDNS rules were allowing CDNS as well
+    - Fixed bug: masqueraded UDP (e.g. CDNS!) failed (func vars weren't local)
+    - Fixed bug: SNMP[T] rules from Chapman & Zwicky disagreed with RFC 1157
+    - Fixed bug: typo in DHCP Client rules allowed incoming address updates even when $DHCP_SERVERS is empty
+    - Added the ability to specify more simple tcp services in the policy file
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
+IPCHAINS-HOWTO by Paul Russell
 http://linux-firewall-tools.com by Robert L. Ziegler
 The ipchains mailing list. Particularly Yan Seiner and Mike A. Harris
 IP-Masquerade-HOWTO by David Ranch
 IP Command Reference by Alexey N. Kuznetsov
+Various RFCs
 
 BUGS
 ~~~~
@@ -216,16 +234,17 @@ BUGS
   This wastes time during firewall creation but they are not used
   and should have no effect on packet filtering speed.
 
-- There is no NAT support yet.
+- There is no normal forwarding or NAPT support yet.
 
 TODO
 ~~~~
 More testing
+Normal forwarding, sets of internal IP addresses, each with their own policy
 Network Address/Port Translation
 Improve fwhelper
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000321
+Date: 20000402
 Author: raf <raf2@zip.com.au>
 

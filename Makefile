@@ -20,7 +20,7 @@
 #
 
 # Install the firewall scripts
-# 20000321 raf <raf2@zip.com.au>
+# 20000402 raf <raf2@zip.com.au>
 
 help:
 	@echo "This Makefile supports the following targets"
@@ -46,13 +46,13 @@ install:
 	for code in S09 K91; do for rc in $(START); do [ -x /etc/rc.d/$$rc/$${code}firewall ] || ln -s ../init.d/firewall /etc/rc.d/$$rc/$${code}firewall; done; done
 
 policy:
-	install -m 600 firewall.policy /etc/sysconfig
+	install -m 600 firewall.policy /etc
 
 uninstall:
-	rm -f /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/sysconfig/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
+	rm -f /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
 
 list:
-	@ls -l /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/sysconfig/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
+	@ls -l /etc/rc.d/init.d/firewall /usr/local/sbin/fwup /usr/local/sbin/fwdown /etc/firewall.policy /etc/rc.d/rc?.d/[SK][0-9][0-9]firewall
 
 dist: MANIFEST
 	@src=`basename \`pwd\``; \

@@ -19,13 +19,13 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# name: /etc/sysconfig/firewall.policy
+# name: /etc/firewall.policy
 #
 # This file tells fwup who and what to trust or not.
 #
 # Read it carefully.
 #
-# 20000321 raf <raf2@zip.com.au>
+# 20000402 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Local information
@@ -402,21 +402,20 @@ UNTRUSTED_INTERFACES=""
 # SERVICES="$SERVICES issh2"
 
 # List of hosts which may connect to this host's SSH2 server.
-# Blank means no hosts.
+# Blank means all hosts.
 # SSH2_CLIENTS="$ZIPPER"
 
 ##############################################################################
 # Outgoing SSH2
 #
 # Note: Permit this rather than telnet or ftp. You can restrict this to
-# specific, trusted hosts. Those hosts will be permitted to connect to
-# unprivileged tcp ports on this host.
+# specific, trusted hosts.
 #
 
 # SERVICES="$SERVICES ossh2"
 
 # List of SSH2 servers to which this network may connect.
-# Blank means no hosts.
+# Blank means all hosts.
 # SSH2_SERVERS="$ZIPPER"
 
 ##############################################################################
@@ -1095,7 +1094,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # OSPF
 #
-# Note: You must have ospf(89) in /etc/protocols.
+# Note: You must have ospf(89) in /etc/protocols to use this.
 #
 
 # SERVICES="$SERVICES ospf"
@@ -1151,7 +1150,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Incoming PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols.
+# Note: You must have pptp(47) in /etc/protocols to use this.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -1164,7 +1163,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Outgoing PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols.
+# Note: You must have pptp(47) in /etc/protocols to use this.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -1177,7 +1176,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Incoming IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols.
+# Note: You must have esp(50) and ah(51) in /etc/protocols to use this.
 #
 
 # SERVICES="$SERVICES iipsec"
@@ -1189,7 +1188,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Outgoing IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols.
+# Note: You must have esp(50) and ah(51) in /etc/protocols to use this.
 #
 
 # SERVICES="$SERVICES oipsec"
@@ -1275,6 +1274,19 @@ UNTRUSTED_INTERFACES=""
 #
 # Note: This isn't configurable yet. Munge the [io]frag chains as needed.
 #
+
+##############################################################################
+# Other TCP Services
+#
+# Note: This only works for applications with a simple, single-connection
+# application protocol.
+#
+
+# List of ports on this host that any external host can connect to
+# OTHER_INCOMING_TCP_SERVICES=""
+
+# List of ports on any host that this network may connect to
+# OTHER_OUTGOING_TCP_SERVICES=""
 
 ##############################################################################
 # No Log

@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20000321 raf <raf2@zip.com.au>
+# 20000402 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Start by checking that we've got everything we need
@@ -78,7 +78,7 @@ fi
 
 # Check that the policy file is available
 
-[ -z "$policy" ] && policy=/etc/sysconfig/firewall.policy
+[ -z "$policy" ] && policy=/etc/firewall.policy
 
 if [ ! -r $policy ]
 then
