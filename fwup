@@ -2340,7 +2340,7 @@ onotes()
 #
 # Open: tcp/1024-4999,51219,61000-65096, udp/51200-51201
 
-odial()
+idial()
 {
 	incoming_udp_only dial "$1" 51200:51201 DIALPAD_CLIENTS $2
 	incoming_tcp_only dial "$1" 51210 DIALPAD_CLIENTS $2
