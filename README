@@ -1,6 +1,6 @@
 README
 ~~~~~~
-fwup - Linux-2.2 ipchains firewall and NAT administration
+firewall - Linux-2.2 ipchains firewall/NAPT/NAT administration
 
 This contains scripts that manage an ipchains firewall and various forms of
 network address and port translation. All you have to do is read the policy
@@ -157,8 +157,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf fwup-20000912.tar.gz
-    cd fwup-20000912
+    tar xzf firewall-20000914.tar.gz
+    cd firewall-20000914
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -239,7 +239,7 @@ These can be found at:
 
 COPYING
 ~~~~~~~
-fwup - Linux-2.2 ipchains firewall and NAPT/NAT administration
+firewall - Linux-2.2 ipchains firewall/NAPT/NAT administration
 Copyright (C) 1999, 2000 raf <raf@raf.org>
 
     This program is free software; you can redistribute it and/or modify
@@ -358,14 +358,14 @@ HISTORY
     - Renamed portsummary to tuplegram and added icmp and udp support
     - Fixed bug: make [un]install didn't work with recent version of bash
 
-20000912
+20000914
 
     - Updated the ipchains url in README
     - Fixed the explanation why internally initiated port forwarding
       doesn't work (in the BUGS section below) thanks to Michael Best
     - Added DIALPAD, WEBPHONE, NET2PHONE, HOTTELEPHONE/WEB2CALL, NETMEETING
     - Added port range forwarding in $PORTRANGEFW
-    - Renamed project to fwup
+    - Made outgoing server dns (when masquerading) more strict
 
 REFERENCES
 ~~~~~~~~~~
@@ -462,6 +462,5 @@ Add support for cisco routers
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20000912
+Date: 20000914
 Author: raf <raf@raf.org>
-

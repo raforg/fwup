@@ -1,5 +1,5 @@
 #
-# fwup - http://fwup.org/
+# firewall - http://fwup.org/
 #
 # Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
@@ -21,7 +21,7 @@
 
 # Makefile - Install the firewall scripts
 #
-# 20000912 raf <raf@raf.org>
+# 20000914 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \
@@ -87,7 +87,7 @@ MANIFEST:
 
 dist: MANIFEST
 	@src=`basename \`pwd\``; \
-	dst=fwup-`date +%Y%m%d`; \
+	dst=firewall-`date +%Y%m%d`; \
 	cd ..; \
 	test "$$src" != "$$dst" -a ! -e "$$dst" && ln -s $$src $$dst; \
 	tar chzf $$dst.tar.gz $$dst/[RMf]* $$dst/examples/* $$dst/tools/* $$dst/patches/*; \

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# fwup - http://fwup.org/
+# firewall - http://fwup.org/
 #
 # Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
@@ -28,7 +28,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000912 raf <raf@raf.org>
+# 20000914 raf <raf@raf.org>
 
 # Source networking configuration (if redhat)
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# fwup - http://fwup.org/
+# firewall - http://fwup.org/
 #
 # Copyright (C) 1999, 2000 raf <raf@raf.org>
 #
@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000912 raf <raf@raf.org>
+# 20000914 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -1365,11 +1365,31 @@ isdns()
 # and give access to only those servers. For a bastion DNS server host, give
 # access to all hosts.
 #
-# Open: tcp(ack)/53,61000-65096 udp/53,61000-65096
+# Note: Unless $ALLOW_MASQUERADED_OSDNS is "yes", masquerading is ignored
+# for this service. It is assumed that the internal DNS server will reside
+# on this firewall host rather than on an internal, masqueraded host.
+# This allows us to avoid accepting packets to the masquerading ports
+# (i.e. 61000:65096) from hostile hosts that impersonate your external
+# DNS servers.
+#
+# Open (no $MASQUERADING):                              tcp(ack)/53 udp/53
+# Open ($MASQUERADING and no $ALLOW_MASQUERADED_OSDNS): tcp(ack)/53 udp/53
+# Open ($MASQUERADING and $ALLOW_MASQUERADED_OSDNS):    tcp(ack)/53,61000-65096 udp/53,61000-65096
 
 osdns()
 {
+	if not yes "$ALLOW_MASQUERADED_OSDNS"
+	then
+		local save_masq="$MASQUERADING"
+		MASQUERADING=""
+	fi
+
 	outgoing_tcpudp_only sdns "$1" 53 OSDNS_SERVERS $2 53
+
+	if not yes "$ALLOW_MASQUERADED_OSDNS"
+	then
+		MASQUERADING="$save_masq"
+	fi
 }
 
 ##############################################################################
