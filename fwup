@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -2957,7 +2957,17 @@ osnmp()
 
 isnmpt()
 {
-	incoming_udp_only snmpt "$1" 162 SNMP_TRAP_CLIENTS $2
+	local targets="$1" index=$2
+
+	chains isnmpt $index
+
+	for client in `combine SNMP_TRAP_CLIENTS $index`
+	do
+		for target in $targets
+		do
+			udp1 iisnmpt$index $client 161 $target 162
+		done
+	done
 }
 
 ##############################################################################
@@ -2966,11 +2976,21 @@ isnmpt()
 # Note: You probably don't want to permit this across a firewall.
 # If you do, only allow connections to trusted SNMP network devices.
 #
-# Open: udp/1024-4999,61000-65096
+# Open: none
 
 osnmpt()
 {
-	outgoing_udp_only snmpt "$1" 162 SNMP_TRAP_SERVERS $2
+	local targets="$1" index=$2
+
+	chains osnmpt $index
+
+	for server in `combine SNMP_TRAP_SERVERS $index`
+	do
+		for target in $targets
+		do
+			udp1 oosnmpt$index $target 161 $server 162
+		done
+	done
 }
 
 ##############################################################################
@@ -3401,15 +3421,25 @@ mand_danger()
 
 	chains danger $index
 
-	# Permit specific X clients to connect
+	# Permit specific external X clients to connect
 	# Note: Don't use this
 
 	for client in `combine XWIN_CLIENTS $index`
 	do
 		for target in $targets
 		do
-			tcpsyn idanger$index $client : $target $XWIN_PORTS ACCEPT
-			tcpsyn odanger$index $target : $client $XWIN_PORTS ACCEPT
+			tcp idanger$index odanger$index $client : $target $XWIN_PORTS
+		done
+	done
+
+	# Permit connection to specific external X servers
+	# Note: Don't use this
+
+	for server in `combine XWIN_SERVERS $index`
+	do
+		for target in $targets
+		do
+			tcp idanger$index odanger$index $target : $server $XWIN_PORTS
 		done
 	done
 

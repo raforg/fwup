@@ -22,7 +22,7 @@
 
 # make-meta-ls - List the meta-firewall installation (without make)
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 echo "Installed files:"
 ls -l /etc/rc.d/init.d/meta-firewall /etc/init.d/meta-firewall /etc/meta-firewall 2>/dev/null

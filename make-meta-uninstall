@@ -22,7 +22,7 @@
 
 # make-meta-uninstall - Uninstall the meta-firewall installation (without make)
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 rm -f /etc/rc.d/init.d/meta-firewall /etc/init.d/meta-firewall /etc/meta-firewall
 rm -rf /etc/meta-firewall.d

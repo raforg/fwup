@@ -156,6 +156,8 @@ Here is the list of currently supported services:
     oping   - outgoing PING
     itrace  - incoming TRACEROUTE
     otrace  - outgoing TRACEROUTE
+    idanger - incoming X11 connections
+    odanger - outgoing X11 connections
 
 Note: Don't trust it. Test it. Audit it. Many services haven't been tested yet.
 
@@ -169,8 +171,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20010507.tar.gz
-    cd firewall-20010507
+    tar xzf firewall-20010801.tar.gz
+    cd firewall-20010801
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -215,8 +217,8 @@ on this host).
 
 Unpack the distribution:
 
-    tar xzf firewall-20010507.tar.gz
-    cd firewall-20010507
+    tar xzf firewall-20010801.tar.gz
+    cd firewall-20010801
 
 Install:
 
@@ -478,9 +480,15 @@ HISTORY
     - Fixed bug: was logging all forwarded packets when FORWARDING="yes" (dos!)
     - Removed installation dependency on make (cesar@rotnet.com.br)
     - Added kernel config, module and software requirements doco to policy file
-    - Fixed bugs tuplegram, added arp support, renamed it to tcpdump-histogram
+    - Fixed tuplegram bugs, added arp support, renamed it to tcpdump-histogram
     - Fixed icmp parsing and added fragment support in fwhelper
     - Added centralised administration of multiple remote firewalls
+
+20010801
+
+    - Fixed SNMP TRAP rules (source port 161, no return packets)
+    - Fixed X11 client rules (dj@head-cfa.harvard.edu)
+    - Added X11 server rules
 
 REFERENCES
 ~~~~~~~~~~
@@ -492,6 +500,7 @@ IP-Masquerade-HOWTO by David Ranch
 IP Command Reference by Alexey N. Kuznetsov
 PMfirewall (http://www.pointman.org) by Rick Johnson (installation)
 mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns (trojans)
+TCP/IP Illustrated Volume 1 by W Richard Stevens
 
 BUGS
 ~~~~
@@ -586,5 +595,5 @@ More testing
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20010507
+Date: 20010801
 Author: raf <raf@raf.org>

@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -359,6 +359,11 @@ ALIAS_PORTFW="$ALIAS_PORTFW tcp $TARGET_ssh    22 10.0.0.4  22 10" # ssh
 # Note: Don't use this.
 # Blank means no hosts.
 # XWIN_CLIENTS=""
+
+# List of X servers that this netowrk may connect to.
+# Note: Don't use this.
+# Blank means no hosts.
+# XWIN_SERVERS=""
 
 # List of other tcp ports to avoid like the plague (NFS, SOCKS, OpenWindows)
 # These will be blocked before anything else is accepted.
@@ -1861,7 +1866,7 @@ SERVICES="$SERVICES oauth"
 # Note: You probably don't want to permit this across a firewall.
 # If you do, only allow connections to trusted SNMP network devices.
 #
-# Open: udp/1024-4999,61000-65096
+# Open: none
 
 # SERVICES="$SERVICES osnmpt"
 

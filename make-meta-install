@@ -22,7 +22,7 @@
 
 # make-meta-install - Install the meta-firewall control script (without make)
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 die() { echo "$0: $*" >&2; exit 1; }
 

@@ -22,7 +22,7 @@
 
 # make-install - Install the firewall scripts (without make)
 #
-# 20010507 raf <raf@raf.org>
+# 20010801 raf <raf@raf.org>
 
 START="rc2.d rc3.d rc4.d rc5.d"
 STOP="rc0.d rc1.d rc6.d"
