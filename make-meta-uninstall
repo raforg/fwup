@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 # make-meta-uninstall - Uninstall the meta-firewall installation (without make)
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 rm -f /etc/rc.d/init.d/meta-firewall /etc/init.d/meta-firewall /etc/meta-firewall
 rm -rf /etc/meta-firewall.d

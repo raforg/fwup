@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 # make-meta-install - Install the meta-firewall control script (without make)
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 die() { echo "$0: $*" >&2; exit 1; }
 
@@ -36,6 +36,7 @@ install -m 744 firewall "$mfwd" || die "failed to install firewall into $mfwd"
 install -m 744 fwup "$mfwd" || die "failed to install fwup into $mfwd"
 install -m 744 fwdown "$mfwd" || die "failed to install fwdown into $mfwd"
 install -m 644 firewall.policy "$mfwd" || die "failed to install firewall.policy into $mfwd"
+install -m 744 migrate-policy "$mfwd" || die "failed to install migrate-policy into $mfwd"
 if [ -d /etc/rc.d/init.d ]; then install -m 744 meta-firewall /etc/rc.d/init.d || die "failed to install meta-firewall into /etc/rc.d/init.d"
 elif [ -d /etc/init.d ]; then install -m 744 meta-firewall /etc/init.d || die "failed to install meta-firewall into /etc/rc.d"
 elif [ -x /etc/rc.d/rc.local ]; then install -m 744 meta-firewall /etc || die "failed to install meta-firewall into /etc"

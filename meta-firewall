@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 # meta-firewall - control script for managing multiple remote firewalls
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 PATH=/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin:/usr/local/bin export PATH
 
@@ -59,16 +59,27 @@ remote()
 	done
 }
 
-[ -d "$mfwd" ] || die "failed to find $mfwd (check installation)"
+[ -z "$1" -o -d "$mfwd" ] || die "failed to find $mfwd (check installation)"
 
 case "$1" in
 
 	prepare)
 		[ -z "$2" ] && die "must specify a hostname"
 		[ -d "$mfwd/$2" ] || mkdir "$mfwd/$2" || die "failed to create $mfwd/$2"
-		[ -f "$mfwd/$2/firewall.policy" ] && die "refusing to overwrite $mfwd/$2/firewall.policy"
+		[ -f "$mfwd/$2/firewall.policy" ] && die "refusing to overwrite $mfwd/$2/firewall.policy (consider meta-firewall migrate)"
 		[ -f "$mfwd/firewall.policy" ] || die "failed to find $mfwd/firewall.policy (check installation)"
 		install "$mfwd/firewall.policy" "$mfwd/$2" || die "failed to cp $mfwd/firewall.policy $mfwd/$2"
+		chmod 600 "$mfwd/$2/firewall.policy" || die "failed to chmod 600 $mfwd/$2/firewall.policy"
+		;;
+
+	migrate)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -d "$mfwd/$2" ] || die "failed to find $mfwd/$2"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy"
+		[ -f "$mfwd/firewall.policy" ] || die "failed to find $mfwd/firewall.policy (check installation)"
+		mv "$mfwd/firewall.policy" "$mfwd/firewall.policy.bak" || die "failed to mv $mfwd/firewall.policy to $mfwd/firewall.policy.bak"
+		install "$mfwd/firewall.policy" "$mfwd/$2" || die "failed to cp $mfwd/firewall.policy $mfwd/$2"
+		"$mfwd/migrate-policy" -y "$mfwd/$2/firewall.policy" "$mfwd/$2/firewall.policy.bak" || die "failed to migrate $mfwd/$2/firewall.policy"
 		chmod 600 "$mfwd/$2/firewall.policy" || die "failed to chmod 600 $mfwd/$2/firewall.policy"
 		;;
 
@@ -123,6 +134,26 @@ case "$1" in
 		set +x
 		;;
 
+	diff)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit/install/policy first)"
+		[ -d "$mfwd/tmp" ] || mkdir "$mfwd/tmp"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$root@$target:/etc/firewall.policy" "$mfwd/tmp/policy.$target"  || die "failed to scp $target:/etc/firewall.policy"
+		diff -dsu "$mfwd/$target/firewall.policy" "$mfwd/tmp/policy.$target"
+		rm "$mfwd/tmp/policy.$target"
+		set +x
+		;;
+
+	revert)
+		[ -z "$2" ] && die "must specify a hostname"
+		[ -f "$mfwd/$2/firewall.policy" ] || die "failed to find $mfwd/$2/firewall.policy (prepare/edit first)"
+		[ "`diff \"$mfwd/$2/firewall.policy\" \"$mfwd/firewall.policy\"`" = "" ] && die "must prepare/read/understand/edit the policy file first"
+		[ "$verbose" = "yes" ] && set -x
+		scp "$root@$2:/etc/firewall.policy" "$mfwd/$2/firewall.policy" || die "failed to scp $2:/etc/firewall.policy to $mfwd/$2/firewall.policy"
+		set +x
+		;;
+
 	start|up|stop|down|restart|reload|status|probe)
 		remote $*
 		;;
@@ -131,15 +162,18 @@ case "$1" in
 		echo "usage: $0 <command> [host...]"
 		echo
 		echo " The following commands require a single hostname. You will need $root access"
-		echo " via openssh to this host. You will have to enter the remote $root password or"
-		echo " your passphrase twice. ssh-agent(1) can make this less tedious."
+		echo " via openssh to this host. You will need to enter the remote $root password"
+		echo " or your passphrase twice unless you use ssh-agent(1)."
 		echo
 		echo "  prepare   - Create a directory in $mfwd for the remote host"
+		echo "  migrate   - Migrate an existing policy file to a new policy file"
 		echo "  edit      - Edit the remote host's policy file"
 		echo "  install   - Install the firewall scripts onto the remote host"
 		echo "  policy    - Install the remote host's policy file"
 		echo "  uninstall - Uninstall the firewall from the remote host"
 		echo "  ls        - List the files related to the remote firewall installation"
+		echo "  diff      - Show the differences between local and remote policy files"
+		echo "  revert    - Copy the remote policy file over the local policy file"
 		echo
 		echo " The following commands take any number of hostnames as arguments. If there are"
 		echo " no hostname arguments, it defaults to all remote hosts for which a directory"
@@ -149,7 +183,7 @@ case "$1" in
 		echo "  start|up  - Start the remote firewall(s)"
 		echo "  stop|down - Stop the remote firewall(s)"
 		echo "  restart   - Restart the remote firewall(s)"
-		echo "  reload    - Reload the remote firewall(s) (quicker than restart)"
+		echo "  reload    - Reload the remote firewall(s) (a bit quicker than restart)"
 		echo "  status    - Show the status of the remote firewall(s)"
 		echo "  probe     - Show detailed status of the remote firewall(s)"
 		echo
@@ -160,6 +194,14 @@ case "$1" in
 		echo "  $0 install <fw>"
 		echo "  $0 policy <fw>"
 		echo "  $0 start"
+		echo
+		echo " A typical upgrade sequence is:"
+		echo
+		echo "  $0 migrate <fw>"
+		echo "  $0 edit <fw>"
+		echo "  $0 install <fw>"
+		echo "  $0 policy <fw>"
+		echo "  $0 restart"
 		echo
 		echo " A typical policy update sequence is:"
 		echo

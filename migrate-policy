@@ -1,0 +1,355 @@
+#!/usr/bin/env perl
+#
+# firewall - http://fwup.org/
+#
+# Copyright (C) 1999-2002 raf <raf@raf.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# migrate-policy - Migrate an existing policy file to the latest version.
+# Requires perl so you may need to run this remotely.
+#
+# 20020626 raf <raf@raf.org>
+
+$^W = 1;
+use strict;
+
+use Getopt::Std;
+use vars qw($opt_d $opt_v $opt_y);
+getopts('dvy') or die("$0: failed to parse options\n");
+
+my $debug = defined $opt_d;
+my $verbose = defined $opt_v;
+my $yes = defined $opt_y;
+
+die("usage: $0 [-dvy] <new-policy-file> <existing-policy-file>\n") unless $#ARGV == 1;
+
+# Check the arguments
+
+die("$0: $ARGV[0] is not a file\n") unless -f $ARGV[0];
+die("$0: $ARGV[0] is not readable\n") unless -r $ARGV[0];
+die("$0: $ARGV[0] is not writable\n") unless -w $ARGV[0];
+die("$0: $ARGV[1] is not a file\n") unless -f $ARGV[1];
+die("$0: $ARGV[1] is not readable\n") unless -r $ARGV[1];
+
+my $new_policy = $ARGV[0];
+my $old_policy = $ARGV[1];
+
+# Warn the user
+
+$| = 1;
+
+if (!$debug && !$yes)
+{
+	print STDERR ("Warning: This program is highly experimental and may not work.\n");
+	print STDERR ("It does not touch your existing policy file. It only modifies\n");
+	print STDERR ("the new firewall.policy file which it backs up first. You must\n");
+	print STDERR ("carefully check the resulting firewall.policy file by hand to\n");
+	print STDERR ("make sure that it reflects your existing topology and policy.\n");
+	print STDERR ("\n");
+	print STDERR ("I really, really mean that.\n");
+	print STDERR ("\n");
+	print STDERR ("Do you want to proceed? ([y]/n): ");
+	my $answer = <STDIN>;
+	die("$0: aborting at the user's request\n") if $answer =~ /^\s*[nN]/;
+}
+
+# Backup the new policy file
+
+if (!$debug && ! -f "$new_policy.orig")
+{
+	open(TARGET, $new_policy) or die("$0: failed to open $new_policy for reading\n");
+	open(BACKUP, "> $new_policy.orig") or die("$0: failed to open $new_policy.orig for writing\n");
+	print BACKUP while <TARGET>;
+	close(TARGET);
+	close(BACKUP);
+}
+
+# Produce a filtered diff between the new and old policy files
+#
+# Rule 1: new comments replace old comments
+# Rule 2: keep entirely new comments, code and blank lines
+# Rule 3: old code replaces new code (only new code is default interface variables)
+# Rule 4: old code commented in new file with blank/yes/no value (uncomment, use old value)
+# Rule 5: old code commented in new file with other value (uncomment, use new value)
+# Rule 6: old code, no new equivalent (insert old code)
+# Rule 7: old code, new comments, keep both
+
+my $patch = '';
+
+open(DIFF, "diff -du $new_policy $old_policy |") or die("$0: failed to run diff\n");
+
+while (<DIFF>)
+{
+	my $new_text;
+	my $old_text;
+
+	# Since this diff is for changing the new policy file into the old
+	# policy file, new text will start with - and old text will start with +.
+	# If new text appears by itself, it is to be included (without the -) [R2].
+	# If old text appears by itself, it is to be included (with a +) [R6].
+	# If old and new text conflict, we need to look more closely:
+	#   If both are comments, the new comments are to be included (without the -) [R1].
+	#   If both are code, the old code is to be included (with the +) [R3].
+	#   If the new text is a commented variable and the old text is the same
+	#   variable uncommented, then we need to look further still:
+	#     If the new value is empty, yes or no, patch the text to use the old value [R4].
+	#     If the new value is anything else, patch the text to use the new value [R5].
+	#   Otherwise, if the old text is code and the new text is doco, include both [R7].
+
+	if ($_ =~ /^--- / || $_ =~ /^\+\+\+ /)
+	{
+		$patch .= $_;
+		next;
+	}
+
+	if ($_ =~ /^-/)
+	{
+		$new_text = $_;
+
+		while (<DIFF>)
+		{
+			last unless $_ =~ /^-/;
+			$new_text .= $_;
+		}
+
+		if ($_ =~ /^\+/)
+		{
+			$old_text = $_;
+
+			while (<DIFF>)
+			{
+				last unless $_ =~ /^\+/;
+				$old_text .= $_;
+			}
+		}
+
+		if (defined $old_text)
+		{
+			# are old text and new text both comments?
+
+			if ($old_text =~ /^\+#/ && $new_text =~ /^-#/)
+			{
+				# Rule 1: New comments replace old comments (without ^-)
+				print("R1: new doco:\n$new_text\n") if $verbose;
+				print("R1: old doco:\n$old_text\n") if $verbose;
+				$new_text =~ s/^-/ /mg;
+				print("R1: output:\n$new_text\n") if $verbose;
+				$patch .= $new_text;
+			}
+
+			# are old text and new text both code?
+
+			elsif (($old_text =~ /^\+$/ || $old_text =~ /^\+[^#]/) && ($new_text =~ /^-$/ || $new_text =~ /^-[^#]/)) # 
+			{
+				# Rule 3: Old code replaces new code (with ^\+)
+				print("R3: new code:\n$new_text\n") if $verbose;
+				print("R3: old code:\n$old_text\n") if $verbose;
+				print("R3: output:\n$new_text$old_text\n") if $verbose;
+				$patch .= $new_text . $old_text;
+			}
+
+			# is old text a variable and new text the same variable commented?
+
+			elsif ($old_text =~ /^\+\s*[0-9A-Z_]+=/ && $new_text =~ /^-#\s*[0-9A-Z_]+=/)
+			{
+				my ($new_var, $new_val) = $new_text =~ /^-#\s*([0-9A-Z_]+)=(.*)\s*$/m;
+				my ($old_var, $old_val) = $old_text =~ /^\+\s*([0-9A-Z_]+)=(.*)\s*$/m;
+
+				if ($new_var eq $old_var)
+				{
+					$new_val =~ s/^"//;
+					$new_val =~ s/"$//;
+
+					if ($new_val eq '' || $new_val eq 'yes' || $new_val eq 'no')
+					{
+						# Rule 4: Include old use of simple variable
+						print("R4: new var:\n$new_text\n") if $verbose;
+						print("R4: old var:\n$old_text\n") if $verbose;
+						print("R4: output:\n$new_text$old_text\n") if $verbose;
+						$patch .= $new_text . $old_text;
+					}
+					else
+					{
+						# Rule 5: Include new value in old use of complex variable
+						print("R5: new var:\n$new_text\n") if $verbose;
+						print("R5: old var:\n$old_text\n") if $verbose;
+						$old_text =~ s/$old_val/"$new_val"/;
+						print("R5: output:\n$new_text$old_text\n") if $verbose;
+						$patch .= $new_text . $old_text;
+					}
+				}
+				else
+				{
+					die("Unexpected input[1]:\nold text:\n$old_text\nnew text:\n$new_text\n");
+				}
+			}
+
+			# is old text code and new text a comment?
+
+			elsif (($old_text =~ /^\+$/ || $old_text =~ /^\+[^#]/) && $new_text =~ /^-#/)
+			{
+				# Rule 7: Include new comments and old code
+				print("R7: new doco:\n$new_text\n") if $verbose;
+				print("R7: old code:\n$old_text\n") if $verbose;
+				$new_text =~ s/^-/ /mg;
+				print("R7: output:\n$new_text$old_text\n") if $verbose;
+				$patch .= $new_text . $old_text;
+			}
+
+			else
+			{
+				die("Unexpected input[2]:\nold text:\n$old_text\nnew text:\n$new_text\n");
+			}
+		}
+		else
+		{
+			# Rule 2: New text by itself, include (without ^-)
+			print("R2: new text:\n$new_text\n") if $verbose;
+			$new_text =~ s/^-/ /mg;
+			print("R2: output:\n$new_text\n") if $verbose;
+			$patch .= $new_text;
+		}
+
+		redo;
+	}
+
+	if ($_ =~ /^\+/)
+	{
+		$old_text = $_;
+
+		while (<DIFF>)
+		{
+			last unless $_ =~ /^\+/;
+			$old_text .= $_;
+		}
+
+		# Rule 6: Old text by itself, include (with ^+)
+		print("R6: old text:\n$old_text\n") if $verbose;
+		print("R6: output:\n$old_text\n") if $verbose;
+		$patch .= $old_text;
+
+		redo;
+	}
+
+	$patch .= $_;
+}
+
+close(DIFF);
+
+# Clean up the filtered diff to make it usable by patch
+
+# Split into patch sized chunks
+
+my @split = split /^(?=(\-\-\-|\+\+\+|\@\@ ))/m, $patch;
+
+die("$0: diff failed\n") if $#split == -1;
+
+# Remove the delimiter elements returned by split
+
+my @hunk;
+
+for (my $i = 4; $i <= $#split; $i += 2)
+{
+	push(@hunk, @split[$i]);
+}
+
+# Check each hunk
+
+my $offset = 0;
+
+for (my $h = 0; $h <= $#hunk; ++$h)
+{
+	my $lines_added = count('\+', $hunk[$h]);
+	my $lines_removed = count('-', $hunk[$h]);
+
+	# Remove hunks with no changes
+
+	splice(@hunk, $h--, 1), next if !$lines_added && !$lines_removed;
+
+	# Make sure there are only three lines of leading context
+
+	my @line = split /\n/, $hunk[$h];
+	my $context = 0;
+	my $increase = 0;
+	my $i;
+
+	for ($i = 1; $i <= $#line && $line[$i] =~ /^ /; ++$i)
+	{
+		++$context
+	}
+
+	splice(@line, 1, $context - 3), $increase = $context - 3 if $context > 3;
+
+	# Make sure there are only three lines of trailing context
+
+	$context = 0;
+	for ($i = $#line; $i >= 0 && $line[$i] =~ /^ /; --$i)
+	{
+		++$context
+	}
+
+	splice(@line, $i + 4, $context - 3) if $context > 3;
+
+	# Calculate the new hunk header
+
+	my $lines_same = count(' ', join("\n", @line));
+	my ($lhs_lineno) = $line[0] =~ /^\@\@ -(\d+),\d+ \+\d+,\d+ \@\@/;
+	my $lhs_lines = $lines_same + $lines_removed;
+	my $rhs_lineno = $lhs_lineno + $offset;
+	my $rhs_lines = $lines_same + $lines_added;
+
+	$lhs_lineno += $increase;
+	$rhs_lineno += $increase;
+	$offset += $rhs_lines - $lhs_lines;
+
+	$line[0] =~ s/^\@\@ -\d+,\d+ \+\d+,\d+ \@\@$/\@\@ -$lhs_lineno,$lhs_lines +$rhs_lineno,$rhs_lines \@\@/;
+
+	$hunk[$h] = join("\n", @line);
+}
+
+# Now we have a good patch file
+
+$patch = join('', $split[0], $split[2], join("\n", @hunk)) . "\n";
+
+# Patch the new policy file
+
+if ($debug)
+{
+	open(PATCH, ">$new_policy.patch") or die("$0: failed to create $new_policy.patch\n");
+	print PATCH $patch;
+	close(PATCH);
+}
+else
+{
+	open(PATCH, "| patch -p 0 $new_policy") or die("$0: failed to run patch\n");
+	print PATCH $patch;
+	close(PATCH);
+}
+
+# Count the number of array items that start with the given pattern
+
+sub count
+{
+	my ($pat, $hunk) = @_;
+
+	my @tmp = grep(/^$pat/, split(/\n/, $hunk));
+
+	return $#tmp + 1;
+}
+
+# vi:set ts=4 sw=4

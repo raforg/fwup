@@ -45,7 +45,7 @@ Centralised administration of multiple remote firewalls is supported.
 
 The policy is specified in the firewall.policy file.
 
-Read it carefully.
+Read it carefully. It contains much necessary information.
 
 Here is the list of currently supported services:
 
@@ -105,6 +105,8 @@ Here is the list of currently supported services:
     oreal   - outgoing RealAudio/QuickTime
     ivnc    - incoming VNC
     ovnc    - outgoing VNC
+    ireach  - incoming REACHOUT
+    oreach  - outgoing REACHOUT
     ipcany  - incoming PC ANYWHERE
     opcany  - outgoing PC ANYWHERE
     iwterm  - incoming WINDOWS TERMINAL SERVER
@@ -137,6 +139,8 @@ Here is the list of currently supported services:
     olog    - outgoing SYSLOG
     sdhcp   - DHCP Server
     cdhcp   - DHCP Client
+    itacacs - Incoming TACACS+
+    otacacs - Outgoing TACACS+
     isnmp   - incoming SNMP
     osnmp   - outgoing SNMP
     isnmpt  - incoming SNMP TRAP
@@ -156,8 +160,8 @@ Here is the list of currently supported services:
     oping   - outgoing PING
     itrace  - incoming TRACEROUTE
     otrace  - outgoing TRACEROUTE
-    idanger - incoming X11 connections
-    odanger - outgoing X11 connections
+    idanger - incoming X11 connections, trojans
+    odanger - outgoing X11 connections, trojans
 
 Note: Don't trust it. Test it. Audit it. Many services haven't been tested yet.
 
@@ -171,20 +175,28 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20010815.tar.gz
-    cd firewall-20010815
+    tar xzf firewall-20020626.tar.gz
+    cd firewall-20020626
+
+If you are upgrading and have an existing firewall.policy, you could try to
+migrate your existing policy into the new policy file (as root):
+
+    ./migrate-policy firewall.policy /etc/firewall.policy
+
+If you do this, make sure that you check the result carefully, comparing it
+to both your existing policy file and to the backup of the new policy file.
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
     vi firewall.policy
 
-Install scripts and policy:
+Install scripts and policy (as root):
 
     make uninstall # if a previous version is installed
     make install
     make policy
 
-If make is not installed:
+If make is not installed (as root):
 
     make-uninstall # if a previous version is installed
     make-install
@@ -199,57 +211,63 @@ network starts and after each new IP address is received via PPP
 or DHCP (if applicable). The firewall will be stopped at shutdown
 time after networking is stopped.
 
-To start the firewall before the next reboot, run one of (depends on system):
+To start the firewall before the next reboot, run one of (depends on system)
+(as root):
 
     /etc/rc.d/init.d/firewall start
     /etc/init.d/firewall start
     /etc/firewall start
 
-After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
-your untrusted interfaces (as root from the inside and the outside) to make
-sure that you got what you wanted. If there are any surprises, investigate.
+After setting up a firewall, don't forget to audit it with nmap (as root
+from the inside and the outside) to make sure that you got what you wanted.
+The tools/portscan script may be useful here. If there are any surprises,
+investigate. It is imperative that you know what your firewall does and
+doesn't do.
 
 REMOTE INSTALL
 ~~~~~~~~~~~~~~
 You can also install scripts that allow you to subsequently install and
-manage multiple remote firewalls (rather than installing the firewall itself
-on this host).
+manage multiple remote firewalls.
 
 Unpack the distribution:
 
-    tar xzf firewall-20010815.tar.gz
-    cd firewall-20010815
+    tar xzf firewall-20020626.tar.gz
+    cd firewall-20020626
 
-Install:
+Install (as root):
 
     make meta-install
 
-If make is not installed:
+If make is not installed (as root):
 
     make-meta-install
 
 This creates the /etc/firewall.d directory and installs the meta-firewall
 script in either /etc/rc.d/init.d, /etc/rc.d or /etc depending on your system.
 
-Prepare for a remote install:
+If upgrading, you could try to migrate an existing remote policy into the
+new policy file (as root):
+
+    meta-firewall migrate <fw>
+
+Prepare for a remote install (if not upgrading) (as root):
 
     meta-firewall prepare <fw>
 
-Where <fw> is the hostname of a remote firewall host
-
-Read the policy file and edit it to reflect your filtering policy and topology:
+Read the policy file and edit it to reflect your filtering policy and
+topology (as root):
 
     meta-firewall edit <fw>
 
-Install the firewall scripts onto the remote firewall host:
+Install the firewall scripts onto the remote firewall host (as root):
 
     meta-firewall install <fw>
 
-Install the remote firewall's policy file:
+Install the remote firewall's policy file (as root):
 
     meta-firewall policy <fw>
 
-Start the firewall remotely:
+Start the firewall remotely (as root):
 
     meta-firewall start <fw>
 
@@ -257,18 +275,69 @@ For more details:
 
     meta-firewall --help
 
+Where <fw> is the hostname of a remote firewall host
+
 You will need root access via openssh to all remote firewall hosts. You will
-have to enter either remote root passwords or your local passphrase when
-managing the remote firewalls. ssh-agent(1) can be used to make this far
-less tedious.
+need to either use ssh-agent(1) or enter remote root passwords or your local
+passphrase when managing the remote firewalls.
 
 Shell tracing is turned on during the execution of all scp and ssh commands
 to the remote firewall hosts so you can see what's going on before you type
-in the root password. If you don't want to see what's going on, prepend the
-meta-firewall command with verbose=no.
+in the root password. If you don't want to see what's going on, set the
+environment variable verbose=no.
 
 Make sure you don't install a remote firewall that doesn't allow incoming
 ssh from the administration host or you won't be able to update it later :)
+
+LRP PACKAGE INSTALL
+~~~~~~~~~~~~~~~~~~~
+You can create an LRP package after defining your firewall policy and install
+it onto an LRP system.
+
+Unpack the distribution (on a non-LRP system):
+
+    tar xzf firewall-20020626.tar.gz
+    cd firewall-20020626
+
+If you are upgrading and have an existing firewall.policy, you could try to
+migrate your existing policy into the new policy file (as root):
+
+    ./migrate-policy firewall.policy /etc/firewall.policy
+
+If you do this, make sure that you check the result carefully, comparing it
+to both your existing policy file and to the backup of the new policy file.
+
+Read the policy file and edit it to reflect your filtering policy and topology:
+
+    vi firewall.policy
+
+Build the LRP package (as root):
+
+    make lrpkg
+
+The package "firewall.lrp" will be created in the current directory.
+Then transfer this package to your LRP system (See LRP documentation
+for details).
+
+This will cause the firewall to be started at boot time before the
+network starts and after each new IP address is received via PPP
+or DHCP (if applicable). The firewall will be stopped at shutdown
+time after networking is stopped.
+
+Note: The current (mid-2002) version of the Oxygen LRP distribution doesn't
+have expr compiled into the busybox version of ash so you will need to
+install expr somehow or use any other LRP distribution (including previous
+versions of Oxygen).
+
+To start the firewall before the next reboot, run (as root):
+
+    /etc/init.d/firewall start
+
+After setting up a firewall, don't forget to audit it with nmap (as root
+from the inside and the outside) to make sure that you got what you wanted.
+The tools/portscan script may be useful here. If there are any surprises,
+investigate. It is imperative that you know what your firewall does and
+doesn't do.
 
 EXTRAS
 ~~~~~~
@@ -277,16 +346,16 @@ The examples directory contains several example policy files.
 The tools directory contains the following utilities:
 
     dns2ip - a filter that translates domain names into IP addresses
-    fwhelper - helps the testing and development of an ipchains firewall
-    portscan - performs a thorough port scan
+    fwhelper - ipchains troubleshooting script (ipchains -C with tracing)
+    portscan - performs a thorough port scan using nmap
     tcpdump-histogram - prints a histogram of packets in tcpdump output
 
 The patches directory contains two patches that you might find useful:
 
-    ipchains-Q.patch
-    ~~~~~~~~~~~~~~~~
-    This is a patch for ipchains-1.3.9 which adds the -Q option.
-    This option takes a filename or ``-'' as an argument.
+    ipchains-1.3.*-Q.patch
+    ~~~~~~~~~~~~~~~~~~~~~~
+    This is a patch for ipchains-1.3.9 and ipchains-1.3.10 which adds the
+    -Q option. This option takes a filename or ``-'' as an argument.
     If a filename is given, ipchains reads its commands from the file.
     If ``-'' is given, ipchains reads its commands from standard input.
     Blank lines and shell-style comments are ignored so it is possible
@@ -313,25 +382,28 @@ REQUIREMENTS
 - ip (iproute2) iff doing alias port porwarding or static NAT
 - nmap used by the portscan utility
 - root privileges for ipchains, ipmasqadm, ip
-- root privileges inside and outside for nmap
+- root privileges inside and outside for auditing with nmap
 - perl used by most of the utilities (dns2ip also requires Net-DNS)
+- perl, diff and patch used by migrate-policy
 
 Note: perl is not needed for the firewall itself!
 
 These can be found at:
 
-  Linux-2.2 - http://www.kernel.org/ (2.2.18)
+  Linux-2.2 - http://www.kernel.org/ (2.2.19)
   ipchains  - http://netfilter.kernelnotes.org/ipchains/ (1.3.10)
   ipmasqadm - http://juanjox.kernelnotes.org/ (0.4.2)
   iproute2  - ftp://ftp.inr.ac.ru/ (000305)
   nmap      - http://www.insecure.org/nmap/ (2.53)
   perl      - http://www.perl.com/ (5.005_03)
   Net-DNS   - http://www.perl.org/CPAN/modules/by-module/Net/ (0.12)
+  diff      - ftp://ftp.gnu.org/pub/gnu/diffutils/ (2.7)
+  patch     - ftp://ftp.gnu.org/pub/gnu/patch/ (2.5)
 
 COPYING
 ~~~~~~~
 firewall - Linux-2.2 ipchains firewall/NAPT/NAT administration
-Copyright (C) 1999-2001 raf <raf@raf.org>
+Copyright (C) 1999-2002 raf <raf@raf.org>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -495,6 +567,31 @@ HISTORY
     - Fixed bug: redirect code never executed (ckhui@school.net.hk)
     - Updated IANA reserved networks (20010619 - 67, 68, 80 and 81 allocated)
 
+20020626
+
+    - Added support for multicast sessions
+    - Added rejecting specific ports when policy is DENY (for inacker@informatik.uni-freiburg.de)
+    - Added support for PPTP server on localhost (nick@abssys.com)
+    - Updated URL for ip_masq_h323 module (martin@kos.li)
+    - Updated -Q patch for ipchains-1.3.10 (rmrpms@usa.net)
+    - Added REACHOUT service
+    - Added TACACS+ service
+    - Updated list of trojan ports (www.neohapsis.com, www.seifried.org)
+    - Removed the need for bash (LRP only has ash)
+    - Removed the need for awk (LRP doesn't have awk by default)
+    - Added migrate-policy (suggested by inacker@informatik.uni-freiburg.de)
+    - Added meta-firewall migrate/diff/revert
+    - Added more doco on SERVICES and TARGET_* variables (bs@axysdesign.com)
+    - Updated IANA reserved networks (20011201 - 219, 220 allocated to APNIC)
+    - Fixed firewall lockfile for Debian (jejc@free.fr)
+    - Made to work with ash, bsh, bash, ksh or (in the unlikely event) zsh
+    - Added installation support for more dhcp clients (i.e. pump and dhclient)
+    - Ported to LRP/busybox-ash (wont-i@wkh.org)
+    - Added "make lrpkg" (creates an LRP package after you define your policy)
+    - Added installation support for systems with /etc/ppp/ip-{up,down}.d
+    - Added "firewall reconf <config>"
+    - Added "firewall help"
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -504,13 +601,17 @@ The ipchains mailing list. Particularly Yan Seiner, Mike Harris and Michael Best
 IP-Masquerade-HOWTO by David Ranch
 IP Command Reference by Alexey N. Kuznetsov
 PMfirewall (http://www.pointman.org) by Rick Johnson (installation)
-mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns (trojans)
+mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns (trojan list)
 TCP/IP Illustrated Volume 1 by W Richard Stevens
+Network Intrusion Detection - An Analyst's Handbook by Stephen Northcutt and Judy Novak
+RFC 2588 IP Multicast and Firewalls by Ross Finlayson
+www.neohapsis.com ports list
+www.seifried.org ports list
 
 BUGS
 ~~~~
 - Masquerading the H.323 services (e.g. HOTTELEPHONE) doesn't work. If anyone
-  would like to help me test it, please contact me.
+  would like to help me test it and get it working, please contact me.
 
 - The *SERVERS* and *CLIENTS* policy variables for a given service apply to all
   instances of a service across a given interface. This means that if you have
@@ -569,7 +670,7 @@ BUGS
   > I've put my patch at http://www.com.org/~michael/masq-demasq.zip
 
 - There is no support for static NAT between internal networks. Let me know
-  if this is a problem. This needs to be fixed. In the meantime, you can just
+  if this is a problem. This should be fixed. In the meantime, you can just
   execute the necessary ip commands separately using priorities below 10000.
 
 - Port forwarding port ranges isn't supported when using Alias Port Forwarding.
@@ -585,20 +686,19 @@ BUGS
   determine whether or not to forward packets, let me know and i'll add
   detection for that system.
 
-- "make install" on systems with rc.local appends a "firewall reload" command
-  to the rc.local file. So the firewall will start after the network is up.
-  You should change this so the firewall starts before the network is up.
-  If this is a problem, tell me how to determine where the command needs to go.
+- "make install" on systems with BSD style init scripts appends a
+  "firewall reload" command to the rc.local file. So the firewall will
+  start after the network is up. You should change this so the firewall
+  starts before the network is up. If this is a problem, tell me how to
+  determine where the command needs to go.
 
 - There is no installation support for Richard Gooch's simpleinit scripts. :(
 
 TODO
 ~~~~
-Add support for iptables, bsd, cisco
-More services
-More testing
+Add implementations for iptables, ipf and cisco ios/cbac
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20010815
+Date: 20020626
 Author: raf <raf@raf.org>

@@ -1,11 +1,11 @@
-ipchains-Q.patch
-~~~~~~~~~~~~~~~~
-This is a patch for ipchains-1.3.9 which adds the -Q option.
-This option takes a filename or ``-'' as an argument.
-If a filename is given, ipchains reads its commands from the file.
-If ``-'' is given, ipchains reads its commands from standard input.
-Blank lines and shell-style comments are ignored so it is possible
-to write executable #!/sbin/ipchains scripts.
+ipchains-1.3.*-Q.patch
+~~~~~~~~~~~~~~~~~~~~~~
+This is a patch for ipchains-1.3.9 or ipchains-1.3.10 which adds the -Q
+option. This option takes a filename or ``-'' as an argument. If a filename
+is given, ipchains reads its commands from the file. If ``-'' is given,
+ipchains reads its commands from standard input. Blank lines and shell-style
+comments are ignored so it is possible to write executable #!/sbin/ipchains
+scripts.
 
 This allows ipchains to perform all of it's tasks in a single process
 instead of several hundred invocations of the same process so starting

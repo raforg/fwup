@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown
@@ -44,16 +44,30 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
 
 # Define a version of redhat's action function that copes with functions
 
-RES_COL=60
-[ -z "$COLUMNS" ] && COLUMNS=80
-MOVE_TO_COL="echo -en \\033[300C\\033[$[${COLUMNS}-${RES_COL}]D"
-SETCOLOR_SUCCESS="echo -en \\033[1;32m"
-SETCOLOR_FAILURE="echo -en \\033[1;31m"
-SETCOLOR_NORMAL="echo -en \\033[0;39m"
+[ -n "$ZSH_VERSION" ] && setopt -y # SH_WORD_SPLIT
+
+if [ "x`echo -en test`" != x"-en test" ] # disable under ash
+then
+	RES_COL=60
+	[ -z "$COLUMNS" ] && COLUMNS=80
+	if [ "`echo $((1-1)) 2>/dev/null`" = "0" ] # bash, ksh, zsh
+	then
+		MOVE_TO_COL="echo -en \\033[300C\\033[$((${COLUMNS}-${RES_COL}))D"
+	else
+		MOVE_TO_COL=""
+	fi
+	SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+	SETCOLOR_FAILURE="echo -en \\033[1;31m"
+	SETCOLOR_NORMAL="echo -en \\033[0;39m"
+fi
+
+if [ -z "$PROG_NAME" ]
+then
+	[ -x /bin/basename ] && PROG_NAME="`basename $0`" || PROG_NAME="fwdown"
+fi
 
 log()
 {
-	[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
 	logger -t "$PROG_NAME" -p daemon.notice $*
 }
 
@@ -144,13 +158,20 @@ locate()
 
 # Check that ipchains is available
 
-ipchains_cmd="`locate ipchains`"
+ipchains_cmd="$(locate ipchains)"
 [ -z "$ipchains_cmd" ] && die "failed to find executable ipchains"
 
 # Check that ifconfig is available
 
-ifconfig_cmd="`locate ifconfig`"
+ifconfig_cmd="$(locate ifconfig)"
 [ -z "$ifconfig_cmd" ] && die "failed to find executable ifconfig"
+
+# Check if awk is available and, if so, under what name
+
+awk_cmd="$(locate awk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate gawk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate mawk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate nawk)"
 
 # Check that the policy file is available
 
@@ -172,55 +193,85 @@ ifconfig_cmd="`locate ifconfig`"
 
 # If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
-[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`"$ifconfig_cmd" | awk '
+if [ -z "$INTERNAL_NETWORKS" ]
+then
+	if [ -x "$awk_cmd" ]
+	then
+		INTERNAL_NETWORKS="`"$ifconfig_cmd" | "$awk_cmd" '
 
-	# Print the addresses and network masks of the internal interfaces (not lo)
+			# Print the addresses and network masks of the internal interfaces (not lo)
 
-	BEGIN {
+			BEGIN {
 
-		# Receive input one interface at a time, not one line at a time
-		RS="";
+				# Receive input one interface at a time, not one line at a time
+				RS="";
 
-		# Build a dictionary of internal interfaces to look for (exclude lo)
-		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
-		for (i in ifaces)
-			if (ifaces[i] != "lo")
-				internal[ifaces[i]] = 1;
-	}
+				# Build a dictionary of internal interfaces to look for (exclude lo)
+				split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+				for (i in ifaces)
+					if (ifaces[i] != "lo")
+						internal[ifaces[i]] = 1;
+			}
 
-	{
-		# All records but the first have $1 == "\0" for some reason
-		iface = ($1 != "\0") ? $1 : $2;
+			{
+				# All records but the first have $1 == "\0" for some reason
+				iface = ($1 != "\0") ? $1 : $2;
 
-		# Identify the real device for aliases
-		if ((colon = index(iface, ":")) != 0)
-			iface = substr(iface, 0, colon - 1);
+				# Identify the real device for aliases
+				if ((colon = index(iface, ":")) != 0)
+					iface = substr(iface, 1, colon - 1);
 
-		# Skip interfaces that we are not interested in
-		if (internal[iface] == "")
-			next;
+				# Skip interfaces that we are not interested in
+				if (internal[iface] == "")
+					next;
 
-		# Print the network pattern of this interface for ipchains
-		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
-			next;
+				# Print the network pattern of this interface for ipchains
+				if (match($0, /inet add?r:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+					next;
 
-		addr = substr($0, RSTART + 10, RLENGTH - 10);
+				addr = substr($0, RSTART + 10, RLENGTH - 10);
 
-		if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
-			next;
+				if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+					next;
 
-		mask = substr($0, RSTART + 5, RLENGTH - 5);
+				mask = substr($0, RSTART + 5, RLENGTH - 5);
 
-		print addr "/" mask;
-	}
+				print addr "/" mask;
+			}
 
-' list="$TRUSTED_INTERFACES"`"
+		' list="$TRUSTED_INTERFACES"`"
+	else # without awk
+		ifaces=
+
+		for iface in $TRUSTED_INTERFACES
+		do
+			[ "$iface" = "lo" ] && continue
+			ifaces="$ifaces `$ifconfig_cmd | grep ^$iface | while read ifconf; do set $ifconf; echo $1; done`"
+		done
+
+		for iface in $ifaces
+		do
+			for data in `$ifconfig_cmd "$iface" | grep 'inet add\?r'`
+			do
+				case "$data" in
+					addr:*)
+						addr="`echo $data | sed 's/addr://'`"
+						;;
+					Mask:*)
+						mask="`echo $data | sed 's/Mask://'`"
+						;;
+				esac
+			done
+			[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="$addr/$mask" || INTERNAL_NETWORKS="$INTERNAL_NETWORKS $addr/$mask"
+		done
+	fi
+fi
 
 # Check that ip is available if static NAT
 
 if yes "$STATIC_NAT"
 then
-	ip_cmd="`locate ip`"
+	ip_cmd="$(locate ip)"
 	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for static NAT)"
 fi
 
@@ -228,7 +279,7 @@ fi
 
 if yes "$ALIAS_PORT_FORWARDING"
 then
-	ip_cmd="`locate ip`"
+	ip_cmd="$(locate ip)"
 	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for alias port porwarding)"
 	PORT_FORWARDING="yes"
 fi
@@ -237,7 +288,7 @@ fi
 
 if yes "$PORT_FORWARDING"
 then
-	ipmasqadm_cmd="`locate ipmasqadm`"
+	ipmasqadm_cmd="$(locate ipmasqadm)"
 	[ -z "$ipmasqadm_cmd" ] && die "failed to find executable ipmasqadm (required for port forwarding)"
 fi
 
@@ -363,7 +414,19 @@ do_stop_filter()
 				done
 			done
 
-			local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+			# local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+
+			case "$dstaddr" in
+				*/*)
+					local base="`echo $dstaddr | sed 's/\/.*$//'`"
+					local bits="`echo $dstaddr | sed 's/^.*\///'`"
+					;;
+				*)
+					local base="$dstaddr"
+					local bits=""
+					;;
+			esac
+
 			[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
 			ip rule delete from $toaddr nat $base
 		done

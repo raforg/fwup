@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -52,14 +52,27 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
 
 # Define a version of redhat's action function that copes with functions
 
-RES_COL=60
-[ -z "$COLUMNS" ] && COLUMNS=80
-MOVE_TO_COL="echo -en \\033[300C\\033[$[${COLUMNS}-${RES_COL}]D"
-SETCOLOR_SUCCESS="echo -en \\033[1;32m"
-SETCOLOR_FAILURE="echo -en \\033[1;31m"
-SETCOLOR_NORMAL="echo -en \\033[0;39m"
+[ -n "$ZSH_VERSION" ] && setopt -y # SH_WORD_SPLIT
 
-[ -z "$PROG_NAME" ] && PROG_NAME="`basename $0`"
+if [ "x`echo -en test`" != x"-en test" ] # disable under ash
+then
+	RES_COL=60
+	[ -z "$COLUMNS" ] && COLUMNS=80
+	if [ "`echo $((1-1)) 2>/dev/null`" = "0" ] # bash, ksh, zsh
+	then
+		MOVE_TO_COL="echo -en \\033[300C\\033[$((${COLUMNS}-${RES_COL}))D"
+	else
+		MOVE_TO_COL=""
+	fi
+	SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+	SETCOLOR_FAILURE="echo -en \\033[1;31m"
+	SETCOLOR_NORMAL="echo -en \\033[0;39m"
+fi
+
+if [ -z "$PROG_NAME" ]
+then
+	[ -x /bin/basename ] && PROG_NAME="`basename $0`" || PROG_NAME="fwup"
+fi
 
 log()
 {
@@ -153,20 +166,27 @@ locate()
 
 # Check that ipchains is available
 
-ipchains_cmd="`locate ipchains`"
+ipchains_cmd="$(locate ipchains)"
 [ -z "$ipchains_cmd" ] && die "failed to find executable ipchains"
 
 # Check whether or not ipchains has the ipchains-Q patch
 
-if "$ipchains_cmd" --help | grep quick >/dev/null
+if [ -n "`\"$ipchains_cmd\" --help | grep quick`" ]
 then
 	[ -z "$fwdebug" ] && IPCHAINS_QUICK=1
 fi
 
 # Check that ifconfig is available
 
-ifconfig_cmd="`locate ifconfig`"
+ifconfig_cmd="$(locate ifconfig)"
 [ -z "$ifconfig_cmd" ] && die "failed to find executable ifconfig"
+
+# Check if awk is available and, if so, under what name
+
+awk_cmd="$(locate awk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate gawk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate mawk)"
+[ -z "$awk_cmd" ] && awk_cmd="$(locate nawk)"
 
 # Check for other protocols that we might need
 
@@ -218,9 +238,10 @@ multicast="224.0.0.0/4"
 ILLEGAL_NETWORKS="$loopback $private_a $private_b $private_c"
 
 # IANA Reserved addresses
-# http://www.iana.org/assignments/ipv4-address-space [2001 June 19]
+# http://www.iana.org/assignments/ipv4-address-space [2001 Dec 1]
 
-RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/5 82.0.0.0/7 84.0.0.0/6 88.0.0.0/5 96.0.0.0/3 197.0.0.0/8 219.0.0.0/8 220.0.0.0/6 240.0.0.0/4"
+RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/5 82.0.0.0/7 84.0.0.0/6 88.0.0.0/5 96.0.0.0/3 197.0.0.0/8 221.0.0.0/8 222.0.0.0/8 223.0.0.0/8 240.0.0.0/4"
+
 # I'm not absolutely certain that the following are IANA Reserved networks.
 # It looks like they are but they're not explicitly labelled "IANA - Reserved".
 # RESERVED_NETWORKS="$RESERVED_NETWORKS 49.0.0.0/8 50.0.0.0/8 201.0.0.0/8"
@@ -353,49 +374,79 @@ MASQ_UDP_TIMEOUT="0"
 
 # If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
-[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`"$ifconfig_cmd" | awk '
+if [ -z "$INTERNAL_NETWORKS" ]
+then
+	if [ -x "$awk_cmd" ]
+	then
+		INTERNAL_NETWORKS="`"$ifconfig_cmd" | "$awk_cmd" '
 
-	# Print the addresses and network masks of the internal interfaces (not lo)
+			# Print the addresses and network masks of the internal interfaces (not lo)
 
-	BEGIN {
+			BEGIN {
 
-		# Receive input one interface at a time, not one line at a time
-		RS="";
+				# Receive input one interface at a time, not one line at a time
+				RS="";
 
-		# Build a dictionary of internal interfaces to look for (exclude lo)
-		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
-		for (i in ifaces)
-			if (ifaces[i] != "lo")
-				internal[ifaces[i]] = 1;
-	}
+				# Build a dictionary of internal interfaces to look for (exclude lo)
+				split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+				for (i in ifaces)
+					if (ifaces[i] != "lo")
+						internal[ifaces[i]] = 1;
+			}
 
-	{
-		# All records but the first have $1 == "\0" for some reason
-		iface = ($1 != "\0") ? $1 : $2;
+			{
+				# All records but the first have $1 == "\0" for some reason
+				iface = ($1 != "\0") ? $1 : $2;
 
-		# Identify the real device for aliases
-		if ((colon = index(iface, ":")) != 0)
-			iface = substr(iface, 0, colon - 1);
+				# Identify the real device for aliases
+				if ((colon = index(iface, ":")) != 0)
+					iface = substr(iface, 1, colon - 1);
 
-		# Skip interfaces that we are not interested in
-		if (internal[iface] == "")
-			next;
+				# Skip interfaces that we are not interested in
+				if (internal[iface] == "")
+					next;
 
-		# Print the network pattern of this interface for ipchains
-		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
-			next;
+				# Print the network pattern of this interface for ipchains
+				if (match($0, /inet add?r:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+					next;
 
-		addr = substr($0, RSTART + 10, RLENGTH - 10);
+				addr = substr($0, RSTART + 10, RLENGTH - 10);
 
-		if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
-			next;
+				if (match($0, /Mask:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+					next;
 
-		mask = substr($0, RSTART + 5, RLENGTH - 5);
+				mask = substr($0, RSTART + 5, RLENGTH - 5);
 
-		print addr "/" mask;
-	}
+				print addr "/" mask;
+			}
 
-' list="$TRUSTED_INTERFACES"`"
+		' list="$TRUSTED_INTERFACES"`"
+	else # without awk
+		ifaces=
+
+		for iface in $TRUSTED_INTERFACES
+		do
+			[ "$iface" = "lo" ] && continue
+			ifaces="$ifaces `$ifconfig_cmd | grep ^$iface | while read ifconf; do set $ifconf; echo $1; done`"
+		done
+
+		for iface in $ifaces
+		do
+			for data in `$ifconfig_cmd "$iface" | grep 'inet add\?r'`
+			do
+				case "$data" in
+					addr:*)
+						addr="`echo $data | sed 's/addr://'`"
+						;;
+					Mask:*)
+						mask="`echo $data | sed 's/Mask://'`"
+						;;
+				esac
+			done
+			[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="$addr/$mask" || INTERNAL_NETWORKS="$INTERNAL_NETWORKS $addr/$mask"
+		done
+	fi
+fi
 
 # Check that $UNTRUSTED_INTERFACES is defined
 
@@ -416,55 +467,95 @@ too_many $UNTRUSTED_INTERFACES && die "Too many untrusted interfaces (only suppo
 # If any interfaces have aliases, we treat their addresses as being
 # equal for that interface.
 
-[ -z "$UNTRUSTED_ADDRESSES" ] && UNTRUSTED_ADDRESSES="`"$ifconfig_cmd" | awk '
+if [ -z "$UNTRUSTED_ADDRESSES" ]
+then
+	if [ -x "$awk_cmd" ]
+	then
+		UNTRUSTED_ADDRESSES="`"$ifconfig_cmd" | "$awk_cmd" '
 
-	# Print the addresses of the untrusted interfaces in order of the
-	# appearance of their interface (multiple addresses/aliases are comma
-	# separated, interfaces that are down result in a 0/0 address)
+			# Print the addresses of the untrusted interfaces in order of the
+			# appearance of their interface (multiple addresses/aliases are comma
+			# separated, interfaces that are down result in a 0/0 address)
 
-	BEGIN {
-		# Receive input one interface at a time, not one line at a time
-		RS="";
+			BEGIN {
+				# Receive input one interface at a time, not one line at a time
+				RS="";
 
-		# Build a dictionary of untrusted interfaces to look for
-		split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
-		for (i in ifaces)
-			untrusted[ifaces[i]] = 1;
-	}
+				# Build a dictionary of untrusted interfaces to look for
+				split(substr(ARGV[1], index(ARGV[1], "=") + 1), ifaces, " +");
+				for (i in ifaces)
+					untrusted[ifaces[i]] = 1;
+			}
 
-	{
-		# All records but the first have $1 == "\0" for some reason
-		iface = ($1 != "\0") ? $1 : $2;
+			{
+				# All records but the first have $1 == "\0" for some reason
+				iface = ($1 != "\0") ? $1 : $2;
 
-		# Identify the real device for aliases
-		if ((colon = index(iface, ":")) != 0)
-			iface = substr(iface, 0, colon - 1);
+				# Identify the real device for aliases
+				if ((colon = index(iface, ":")) != 0)
+					iface = substr(iface, 1, colon - 1);
 
-		# Skip interfaces that we are not interested in
-		if (untrusted[iface] == "")
-		{
-			delete untrusted[iface]; # negate auto-vivification
-			next;
-		}
+				# Skip interfaces that we are not interested in
+				if (untrusted[iface] == "")
+				{
+					delete untrusted[iface]; # negate auto-vivification
+					next;
+				}
 
-		# Store the address in a dictionary (comma separated when aliased)
-		if (match($0, /inet addr:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
-			next;
+				# Store the address in a dictionary (comma separated when aliased)
+				if (match($0, /inet add?r:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) == 0)
+					next;
 
-		addr = substr($0, RSTART + 10, RLENGTH - 10);
-		addresses[iface] = (addresses[iface] == "") ? addr : addresses[iface] "," addr;
-	}
+				addr = substr($0, RSTART + 10, RLENGTH - 10);
+				addresses[iface] = (addresses[iface] == "") ? addr : addresses[iface] "," addr;
+			}
 
-	END {
-		# Print addresses in order of the appearance of its interface
-		for (i in ifaces)
-		{
-			iface = ifaces[i];
-			print (addresses[iface] != "") ? addresses[iface] : "'$any'";
-		}
-	}
+			END {
+				# Print addresses in order of the appearance of its interface
+				for (i = 1; i in ifaces; ++i)
+				{
+					iface = ifaces[i];
+					print (addresses[iface] != "") ? addresses[iface] : "'$any'";
+				}
+			}
 
-' list="$UNTRUSTED_INTERFACES"`"
+		' list="$UNTRUSTED_INTERFACES" 2>/dev/null`"
+
+		# Note: the "2>/dev/null" above is to prevent ash from dumping core.
+		# But don't ask me why ash dumps core or why this "fixes" it :-?
+	fi
+
+	# If no awk or it didn't work (ash seems to break it), do it without awk
+
+	if [ -z "$UNTRUSTED_ADDRESSES" ]
+	then
+		for iface in $UNTRUSTED_INTERFACES
+		do
+			aliases="`ifconfig | grep ^$iface | sed 's/ .*$//'`"
+			[ -z "$aliases" ] && aliases="$iface"
+
+			addresses=""
+
+			for alias in $aliases
+			do
+				data="`ifconfig "$alias" 2>/dev/null | grep 'inet add\?r'`"
+
+				case "$data" in
+					*inet\ addr*)
+						addr="`echo $data | sed -e 's/^.*inet add\?r://' -e 's/ .*$//'`"
+						;;
+					'')
+						addr="0.0.0.0"
+						;;
+				esac
+
+				[ -z "$addresses" ] && addresses="$addr" || addresses="$addresses,$addr"
+			done
+
+			[ -z "$UNTRUSTED_ADDRESSES" ] && UNTRUSTED_ADDRESSES="$addresses" || UNTRUSTED_ADDRESSES="$UNTRUSTED_ADDRESSES $addresses"
+		done
+	fi
+fi
 
 # Check the network topology variables
 
@@ -472,7 +563,7 @@ too_many $UNTRUSTED_INTERFACES && die "Too many untrusted interfaces (only suppo
 if yes "$STATIC_NAT"
 then
 	# Check that ip is available
-	ip_cmd="`locate ip`"
+	ip_cmd="$(locate ip)"
 	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for static NAT)"
 	# Check that /etc/iproute2 is available
 	[ ! -d /etc/iproute2 ] && die "failed to find directory /etc/iproute2 (required for static NAT)"
@@ -484,7 +575,7 @@ fi
 if yes "$ALIAS_PORT_FORWARDING"
 then
 	# Check that ip is available
-	ip_cmd="`locate ip`"
+	ip_cmd="$(locate ip)"
 	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for alias port porwarding)"
 	# Check the policy variable
 	[ -z "$ALIAS_PORTFW" ] && die "\$ALIAS_PORTFW must be defined in $policy (required for alias port porwarding)"
@@ -496,7 +587,7 @@ fi
 if yes "$PORT_FORWARDING"
 then
 	# Check that ipmasqadm is available
-	ipmasqadm_cmd="`locate ipmasqadm`"
+	ipmasqadm_cmd="$(locate ipmasqadm)"
 	[ -z "$ipmasqadm_cmd" ] && die "failed to find executable ipmasqadm (required for port forwarding)"
 	# Check the policy variable
 	not yes "$ALIAS_PORT_FORWARDING" && [ -z "$PORTFW" -a -z "$PORTRANGEFW" ] && die "\$PORTFW or \$PORTRANGEFW must be defined in $policy (required for port forwarding)"
@@ -535,7 +626,15 @@ fi
 
 # Check that $OCDNS_SERVERS or $OSDNS_SERVERS is defined or really obvious
 
-[ -z "$OCDNS_SERVERS" ] && OCDNS_SERVERS="`awk '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
+if [ -z "$OCDNS_SERVERS" ]
+then
+	if [ -x "$awk_cmd" ]
+	then
+		OCDNS_SERVERS="`$awk_cmd '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
+	else # without awk
+		OCDNS_SERVERS="`grep '^nameserver' /etc/resolv.conf | sed -e 's/^nameserver //' -e 's/$/\/32/' | grep -v 127.0.0.1`"
+	fi
+fi
 
 [ -z "$OCDNS_SERVERS$OSDNS_SERVERS" ] && die "Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy"
 
@@ -623,7 +722,7 @@ ip()
 chain()
 {
 	local name=$1 index=$2
-	eval [ -z "\$chain_$name$index" ] && ipchains -N $name$index
+	eval [ -z "\"\$chain_$name$index\"" ] && ipchains -N $name$index
 	eval chain_$name$index="1"
 }
 
@@ -649,29 +748,29 @@ domasq()
 	yes "$MASQUERADING" && [ "$index" = "0" ]
 }
 
-# tcp chain1 chain2 srcaddr srcport dstaddr dstport
+# tcp chain1 chain2 srcaddr srcport dstaddr dstport extra
 #
 # Accept a tcp service from src to dst on chain1 and replies on chain2
 
 tcp()
 {
-	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
-	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT
-	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j ACCEPT
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 extra=$7
+	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT $extra
+	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j ACCEPT $extra
 }
 
-# tcpmasq chain1 chain2 srcaddr srcport dstaddr dstport
+# tcpmasq chain1 chain2 srcaddr srcport dstaddr dstport extra
 #
 # Accept an outgoing tcp service for this host and masqueraded hosts
 
 tcpmasq()
 {
-	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
-	tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
-	tcp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 extra=$7
+	tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
+	tcp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport $extra
 }
 
-# tcpm index chain1 chain2 srcaddr srcport dstaddr dstport
+# tcpm index chain1 chain2 srcaddr srcport dstaddr dstport extra
 #
 # Accept an outgoing tcp service for this host and masqueraded hosts if
 # masquerading and this is on the first untrusted interface. Just accept
@@ -679,12 +778,12 @@ tcpmasq()
 
 tcpm()
 {
-	local index=$1 chain1=$2 chain2=$3 srcaddr=$4 srcport=$5 dstaddr=$6 dstport=$7
+	local index=$1 chain1=$2 chain2=$3 srcaddr=$4 srcport=$5 dstaddr=$6 dstport=$7 extra=$8
 	if domasq $index
 	then
-		tcpmasq $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+		tcpmasq $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
 	else
-		tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+		tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
 	fi
 }
 
@@ -781,29 +880,29 @@ udpm1()
 	fi
 }
 
-# udp chain1 chain2 srcaddr srcport dstaddr dstport
+# udp chain1 chain2 srcaddr srcport dstaddr dstport extra=$7
 #
 # Accept udp src to dst on chain1 and udp dst to src on chain2.
 
 udp()
 {
-	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
-	udp1 $chain1 $srcaddr $srcport $dstaddr $dstport
-	udp1 $chain2 $dstaddr $dstport $srcaddr $srcport
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 extra=$7
+	udp1 $chain1 $srcaddr $srcport $dstaddr $dstport $extra
+	udp1 $chain2 $dstaddr $dstport $srcaddr $srcport $extra
 }
 
-# udpmasq chain1 chain2 srcaddr srcport dstaddr dstport
+# udpmasq chain1 chain2 srcaddr srcport dstaddr dstport extra
 #
 # Accept an outgoing udp service for this host and masqueraded hosts
 
 udpmasq()
 {
-	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6
-	udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
-	udp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
+	local chain1=$1 chain2=$2 srcaddr=$3 srcport=$4 dstaddr=$5 dstport=$6 extra=$7
+	udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
+	udp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport $extra
 }
 
-# udpmasq chain1 chain2 srcaddr srcport dstaddr dstport
+# udpmasq chain1 chain2 srcaddr srcport dstaddr dstport extra
 #
 # Accept an outgoing udp service for this host and masqueraded hosts if
 # masquerading and this is on the first untrusted interface. Just accept
@@ -811,12 +910,12 @@ udpmasq()
 
 udpm()
 {
-	local index=$1 chain1=$2 chain2=$3 srcaddr=$4 srcport=$5 dstaddr=$6 dstport=$7
+	local index=$1 chain1=$2 chain2=$3 srcaddr=$4 srcport=$5 dstaddr=$6 dstport=$7 extra=$8
 	if domasq $index
 	then
-		udpmasq $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+		udpmasq $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
 	else
-		udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+		udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $extra
 	fi
 }
 
@@ -833,7 +932,7 @@ noudp1()
 
 # notcp1 chain srcaddr srcport dstaddr dstport target extra
 #
-# Deny/reject a tcp packet: On chain, jump to target for udp src to dst.
+# Deny/reject a tcp packet: On chain, jump to target for tcp src to dst.
 # extra is for the logging option, -l.
 
 notcp1()
@@ -853,15 +952,15 @@ icmp()
 	ipchains -A $chain -p icmp -s $srcaddr $type -d $dstaddr -j ACCEPT $extra
 }
 
-# other protocol chain1 chain2 srcaddr dstaddr
+# other protocol chain1 chain2 srcaddr dstaddr extra
 #
 # Accept other protocol from src to dst on chain1 and from dst to src on chain2.
 
 other()
 {
-	local protocol=$1 chain1=$2 chain2=$3 srcaddr=$4 dstaddr=$5
-	ipchains -A $chain1 -p $protocol -s $srcaddr -d $dstaddr -j ACCEPT
-	ipchains -A $chain2 -p $protocol -s $dstaddr -d $srcaddr -j ACCEPT
+	local protocol=$1 chain1=$2 chain2=$3 srcaddr=$4 dstaddr=$5 extra=$6
+	ipchains -A $chain1 -p $protocol -s $srcaddr -d $dstaddr -j ACCEPT $extra
+	ipchains -A $chain2 -p $protocol -s $dstaddr -d $srcaddr -j ACCEPT $extra
 }
 
 # default_to_any varname index
@@ -875,7 +974,7 @@ default_to_any()
 {
 	local common=$1 index=$2
 	eval local specific=\"\${common}_$index\"
-	eval [ -z \"\$$common\$$specific\" ] && eval $specific="$any"
+	eval [ -z "\"\$$common\$$specific\"" ] && eval $specific="$any"
 }
 
 # combine varname index
@@ -888,7 +987,7 @@ combine()
 {
 	local common=$1 index=$2
 	eval local specific=\"\${common}_$index\"
-	dbg2 && eval echo $common.`index UNTRUSTED_INTERFACES $index` = \$$common \$$specific >&2
+	dbg2 && eval echo $common.$(index UNTRUSTED_INTERFACES $index) = \$$common \$$specific >&2
 	eval echo \$$common \$$specific
 }
 
@@ -911,7 +1010,7 @@ number()
 
 index()
 {
-	local var=$1 index=$2
+	local var="$1" index="$2"
 	eval set \$$var
 	index=`expr $index + 1`
 	eval echo \$$index
@@ -933,28 +1032,28 @@ member()
 	return 1
 }
 
-# incoming_tcp_only service target port clientsvarname index [clientports]
+# incoming_tcp_only service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from the
 # specific hosts given in a policy variable to a local/internal tcp service
 
 incoming_tcp_only()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="1024:"
 
 	chains i$service $index
 
-	for client in `combine $clientsvarname $index`
+	for client in $(combine $clientsvarname $index)
 	do
 		for target in $targets
 		do
-			tcp ii$service$index oi$service$index $client $client_ports $target $port
+			tcp ii$service$index oi$service$index $client $client_ports $target $port $extra
 		done
 	done
 }
 
-# incoming1_tcp_only service target port clientsvarname index [clientports]
+# incoming1_tcp_only service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from the
 # specific hosts given in a policy variable to a local/internal tcp service
@@ -962,21 +1061,21 @@ incoming_tcp_only()
 
 incoming1_tcp_only()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="1024:"
 
 	chains $service $index
 
-	for client in `combine $clientsvarname $index`
+	for client in $(combine $clientsvarname $index)
 	do
 		for target in $targets
 		do
-			tcp i$service$index o$service$index $client $client_ports $target $port
+			tcp i$service$index o$service$index $client $client_ports $target $port $extra
 		done
 	done
 }
 
-# incoming_tcp_any service target port clientsvarname index [clientports]
+# incoming_tcp_any service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from the
 # specific hosts given in a policy variable (any host, by default) to a
@@ -984,13 +1083,13 @@ incoming1_tcp_only()
 
 incoming_tcp_any()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $clientsvarname $index
-	incoming_tcp_only $service "$targets" $port $clientsvarname $index $client_ports
+	incoming_tcp_only $service "$targets" $port $clientsvarname $index $client_ports $extra
 }
 
-# incoming1_tcp_any service target port clientsvarname index [clientports]
+# incoming1_tcp_any service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from the
 # specific hosts given in a policy variable (any host, by default) to a
@@ -999,13 +1098,13 @@ incoming_tcp_any()
 
 incoming1_tcp_any()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $clientsvarname $index
-	incoming1_tcp_only $service "$targets" $port $clientsvarname $index $client_ports
+	incoming1_tcp_only $service "$targets" $port $clientsvarname $index $client_ports $extra
 }
 
-# outgoing_tcp_only service target port serversvarname index [clientports]
+# outgoing_tcp_only service target port serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service on
@@ -1013,21 +1112,21 @@ incoming1_tcp_any()
 
 outgoing_tcp_only()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains o$service $index
 
-	for server in `combine $serversvarname $index`
+	for server in $(combine $serversvarname $index)
 	do
 		for target in $targets
 		do
-			tcpm $index oo$service$index io$service$index $target $client_ports $server $port
+			tcpm $index oo$service$index io$service$index $target $client_ports $server $port $extra
 		done
 	done
 }
 
-# outgoing1_tcp_only service target port serversvarname index [clientports]
+# outgoing1_tcp_only service target port serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service on
@@ -1036,21 +1135,21 @@ outgoing_tcp_only()
 
 outgoing1_tcp_only()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains $service $index
 
-	for server in `combine $serversvarname $index`
+	for server in $(combine $serversvarname $index)
 	do
 		for target in $targets
 		do
-			tcpm $index o$service$index i$service$index $target $client_ports $server $port
+			tcpm $index o$service$index i$service$index $target $client_ports $server $port $extra
 		done
 	done
 }
 
-# outgoing_tcp_any service target port serversvarname index [clientports]
+# outgoing_tcp_any service target port serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service on
@@ -1058,13 +1157,13 @@ outgoing1_tcp_only()
 
 outgoing_tcp_any()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $serversvarname $index
-	outgoing_tcp_only $service "$targets" $port $serversvarname $index $client_ports
+	outgoing_tcp_only $service "$targets" $port $serversvarname $index $client_ports $extra
 }
 
-# outgoing1_tcp_any service target port serversvarname index [clientports]
+# outgoing1_tcp_any service target port serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service on
@@ -1073,13 +1172,13 @@ outgoing_tcp_any()
 
 outgoing1_tcp_any()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $serversvarname $index
-	outgoing1_tcp_only $service "$targets" $port $serversvarname $index $client_ports
+	outgoing1_tcp_only $service "$targets" $port $serversvarname $index $client_ports $extra
 }
 
-# outgoing_tcp_exclusive service target port serversvarname excludevarname index [clientports]
+# outgoing_tcp_exclusive service target port serversvarname excludevarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service on
@@ -1088,12 +1187,12 @@ outgoing1_tcp_any()
 
 outgoing_tcp_exclusive()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 excludevarname=$5 index=$6 client_ports=$7
+	local service=$1 targets="$2" port=$3 serversvarname=$4 excludevarname=$5 index=$6 client_ports=$7 extra=$8
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains o$service $index
 
-	for server in `combine $excludevarname $index`
+	for server in $(combine $excludevarname $index)
 	do
 		for target in $targets
 		do
@@ -1101,10 +1200,10 @@ outgoing_tcp_exclusive()
 		done
 	done
 
-	outgoing_tcp_any $service "$targets" $port $serversvarname $index $client_ports
+	outgoing_tcp_any $service "$targets" $port $serversvarname $index $client_ports $extra
 }
 
-# incoming_tcpudp_any servce target port clientsvarname index [clientports]
+# incoming_tcpudp_any servce target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from the
 # specific hosts given in a policy variable (any host, by default) to a
@@ -1113,24 +1212,24 @@ outgoing_tcp_exclusive()
 
 incoming_tcpudp_any()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="1024:"
 
 	chains i$service $index
 
 	default_to_any $clientsvarname $index
 
-	for client in `combine $clientsvarname $index`
+	for client in $(combine $clientsvarname $index)
 	do
 		for target in $targets
 		do
-			udp ii$service$index oi$service$index $client $client_ports $target $port
-			tcp ii$service$index oi$service$index $client $client_ports $target $port
+			udp ii$service$index oi$service$index $client $client_ports $target $port $extra
+			tcp ii$service$index oi$service$index $client $client_ports $target $port $extra
 		done
 	done
 }
 
-# outgoing_tcpudp_only service target port serversvarname index [clientports]
+# outgoing_tcpudp_only service target port serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a tcp service and
@@ -1139,22 +1238,22 @@ incoming_tcpudp_any()
 
 outgoing_tcpudp_only()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains o$service $index
 
-	for server in `combine $serversvarname $index`
+	for server in $(combine $serversvarname $index)
 	do
 		for target in $targets
 		do
-			udpm $index oo$service$index io$service$index $target $client_ports $server $port
-			tcpm $index oo$service$index io$service$index $target $client_ports $server $port
+			udpm $index oo$service$index io$service$index $target $client_ports $server $port $extra
+			tcpm $index oo$service$index io$service$index $target $client_ports $server $port $extra
 		done
 	done
 }
 
-# incoming_tcp_byport service target portsvarname index
+# incoming_tcp_byport service target portsvarname index [extra]
 #
 # Create and populate rule chains that allow incoming connections from any
 # external host for a local/internal tcp service on ports given in a policy
@@ -1162,7 +1261,7 @@ outgoing_tcpudp_only()
 
 incoming_tcp_byport()
 {
-	local service=$1 targets="$2" portsvarname=$3 index=$4
+	local service=$1 targets="$2" portsvarname=$3 index=$4 extra=$5
 
 	chains i$service $index
 
@@ -1172,12 +1271,12 @@ incoming_tcp_byport()
 	do
 		for port in $portsvar
 		do
-			tcp ii$service$index oi$service$index $any 1024: $target $port
+			tcp ii$service$index oi$service$index $any 1024: $target $port $extra
 		done
 	done
 }
 
-# outgoing_tcp_byport service target portsvarname index
+# outgoing_tcp_byport service target portsvarname index [extra]
 #
 # create and populate rule chains that allow connections from the
 # local/internal host to any external host for a tcp service on ports given
@@ -1185,7 +1284,7 @@ incoming_tcp_byport()
 
 outgoing_tcp_byport()
 {
-	local service=$1 targets="$2" portsvarname=$3 index=$4
+	local service=$1 targets="$2" portsvarname=$3 index=$4 extra=$5
 
 	chains o$service $index
 
@@ -1196,33 +1295,33 @@ outgoing_tcp_byport()
 	do
 		for port in $portsvar
 		do
-			tcpm $index oo$service$index io$service$index $target $normal_ports $any $port
+			tcpm $index oo$service$index io$service$index $target $normal_ports $any $port $extra
 		done
 	done
 }
 
-# incoming_udp_only service target port clientsvarname index [clientports]
+# incoming_udp_only service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from
 # specific hosts given in a policy variable to a local/internal udp service
 
 incoming_udp_only()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="1024:"
 
 	chains i$service $index
 
-	for client in `combine $clientsvarname $index`
+	for client in $(combine $clientsvarname $index)
 	do
 		for target in $targets
 		do
-			udp ii$service$index oi$service$index $client $client_ports $target $port
+			udp ii$service$index oi$service$index $client $client_ports $target $port $extra
 		done
 	done
 }
 
-# incoming1_udp_only service target port clientsvarname index [clientports]
+# incoming1_udp_only service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from
 # specific hosts given in a policy variable to a local/internal udp service
@@ -1230,21 +1329,21 @@ incoming_udp_only()
 
 incoming1_udp_only()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="1024:"
 
 	chains $service $index
 
-	for client in `combine $clientsvarname $index`
+	for client in $(combine $clientsvarname $index)
 	do
 		for target in $targets
 		do
-			udp i$service$index o$service$index $client $client_ports $target $port
+			udp i$service$index o$service$index $client $client_ports $target $port $extra
 		done
 	done
 }
 
-# incoming_udp_any service target port clientsvarname index [clientports]
+# incoming_udp_any service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from
 # specific hosts given in a policy variable (all hosts, by default) to
@@ -1252,13 +1351,13 @@ incoming1_udp_only()
 
 incoming_udp_any()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $clientsvarname $index
-	incoming_udp_only $service "$targets" $port $clientsvarname $index $client_ports
+	incoming_udp_only $service "$targets" $port $clientsvarname $index $client_ports $extra
 }
 
-# incoming1_udp_any service target port clientsvarname index [clientports]
+# incoming1_udp_any service target port clientsvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow incoming connections from
 # specific hosts given in a policy variable (all hosts, by default) to
@@ -1266,13 +1365,13 @@ incoming_udp_any()
 
 incoming1_udp_any()
 {
-	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 clientsvarname=$4 index=$5 client_ports=$6 extra=$7
 
 	default_to_any $clientsvarname $index
-	incoming1_udp_only $service "$targets" $port $clientsvarname $index $client_ports
+	incoming1_udp_only $service "$targets" $port $clientsvarname $index $client_ports $extra
 }
 
-# outgoing_udp_only service target ports serversvarname index [clientports]
+# outgoing_udp_only service target ports serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a udp service on
@@ -1280,21 +1379,21 @@ incoming1_udp_any()
 
 outgoing_udp_only()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains o$service $index
 
-	for server in `combine $serversvarname $index`
+	for server in $(combine $serversvarname $index)
 	do
 		for target in $targets
 		do
-			udpm $index oo$service$index io$service$index $target $client_ports $server $port
+			udpm $index oo$service$index io$service$index $target $client_ports $server $port $extra
 		done
 	done
 }
 
-# outgoing1_udp_only service target ports serversvarname index [clientports]
+# outgoing1_udp_only service target ports serversvarname index [clientports] [extra]
 #
 # Create and populate rule chains that allow outgoing connections from the
 # local/internal host and masqueraded internal hosts to a udp service on
@@ -1303,18 +1402,40 @@ outgoing_udp_only()
 
 outgoing1_udp_only()
 {
-	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6
+	local service=$1 targets="$2" port=$3 serversvarname=$4 index=$5 client_ports=$6 extra=$7
 	[ -z "$client_ports" ] && client_ports="$normal_ports"
 
 	chains $service $index
 
-	for server in `combine $serversvarname $index`
+	for server in $(combine $serversvarname $index)
 	do
 		for target in $targets
 		do
-			udpm $index o$service$index i$service$index $target $client_ports $server $port
+			udpm $index o$service$index i$service$index $target $client_ports $server $port $extra
 		done
 	done
+}
+
+# defined_service service
+#
+# Determine whether or not the supplied service name is defined as a shell
+# function. If it is not a function name, then it can't be a valid service
+# name. False positives are possible, though. We have to allow them, though,
+# in case the user has defined their own service functions in the policy
+# file.
+
+defined_service()
+{
+	local service=$1
+
+	case "`hash -v $service 2>/dev/null`" in # ash, bsh
+		*function*)
+			return 0;;
+	esac
+
+	( typeset -f $service >/dev/null ) 2>/dev/null && return 0 # bash, ksh, zsh
+	return 1
+
 }
 
 ##############################################################################
@@ -1673,7 +1794,7 @@ inftp()
 
 	default_to_any FTP_CLIENTS $index
 
-	for client in `combine FTP_CLIENTS $index`
+	for client in $(combine FTP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -1706,7 +1827,7 @@ ipftp()
 
 	default_to_any FTP_CLIENTS $index
 
-	for client in `combine FTP_CLIENTS $index`
+	for client in $(combine FTP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -1735,7 +1856,7 @@ oftp()
 	# password required to connect or the contents of the files is too sensitive
 	# to be transmitted over the net in plaintext
 
-	for server in `combine EVIL_FTP_SERVERS $index`
+	for server in $(combine EVIL_FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1745,7 +1866,7 @@ oftp()
 
 	default_to_any FTP_SERVERS $index
 
-	for server in `combine FTP_SERVERS $index`
+	for server in $(combine FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1760,9 +1881,11 @@ oftp()
 # Note: This is an extremely bad idea if used for non-anonymous FTP access
 # since real user names, passwords and private files will be transmitted
 # over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
-# require that users use rsync over ssh instead. It is also an extremely bad
-# idea since it allows any host to connect to any tcp port above 1023.
-# Instead, restrict connections to a bastion host running an FTP proxy.
+# require that users use rsync over ssh instead.
+#
+# Also, outging normal mode fpt is an extremely bad idea since it allows
+# any host to connect to any tcp port above 1023. Instead, restrict
+# connections to a bastion host running an FTP proxy.
 #
 # Open: tcp/1024-4999 tcp(ack)/1024-4999,61000-65096
 
@@ -1782,7 +1905,7 @@ onftp()
 	# password required to connect or the contents of the files is too sensitive
 	# to be transmitted over the net in plaintext
 
-	for server in `combine EVIL_FTP_SERVERS $index`
+	for server in $(combine EVIL_FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1792,7 +1915,7 @@ onftp()
 
 	default_to_any FTP_SERVERS $index
 
-	for server in `combine FTP_SERVERS $index`
+	for server in $(combine FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1808,6 +1931,12 @@ onftp()
 # since real user names, passwords and private files will be transmitted
 # over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
 # require that users use rsync over ssh instead.
+#
+# Also, outgoing passive mode ftp is bad because it allows client hosts
+# to connect to any external host on any tcp port above 1023. This defeats
+# egress filtering and allows trojans to function unhindered. Instead,
+# restrict connections to a bastion host running an FTP proxy. Or at least
+# turn on tcp trojan blocking above (EVIL_TCP_PORTS).
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
@@ -1827,7 +1956,7 @@ opftp()
 	# password required to connect or the contents of the files is too sensitive
 	# to be transmitted over the net in plaintext
 
-	for server in `combine EVIL_FTP_SERVERS $index`
+	for server in $(combine EVIL_FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1837,7 +1966,7 @@ opftp()
 
 	default_to_any FTP_SERVERS $index
 
-	for server in `combine FTP_SERVERS $index`
+	for server in $(combine FTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -1946,7 +2075,7 @@ iproxy()
 
 	chains iproxy $index
 
-	for client in `combine INTERNAL_HTTP_PROXY_CLIENTS $index`
+	for client in $(combine INTERNAL_HTTP_PROXY_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -1971,7 +2100,7 @@ oproxy()
 
 	chains oproxy $index
 
-	for server in `combine EXTERNAL_HTTP_PROXY_SERVERS $index`
+	for server in $(combine EXTERNAL_HTTP_PROXY_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2134,7 +2263,7 @@ ismb()
 
 	chains ismb $index
 
-	for client in `combine SMB_CLIENTS $index`
+	for client in $(combine SMB_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2158,7 +2287,7 @@ osmb()
 
 	chains osmb $index
 
-	for server in `combine SMB_SERVERS $index`
+	for server in $(combine SMB_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2216,7 +2345,7 @@ iicq()
 
 	default_to_any ICQ_CLIENTS $index
 
-	for client in `combine ICQ_CLIENTS $index`
+	for client in $(combine ICQ_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2242,7 +2371,7 @@ oicq()
 
 	default_to_any ICQ_SERVERS $index
 
-	for server in `combine ICQ_SERVERS $index`
+	for server in $(combine ICQ_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2268,7 +2397,7 @@ ireal()
 
 	default_to_any REALAUDIO_CLIENTS $index
 
-	for client in `combine REALAUDIO_CLIENTS $index`
+	for client in $(combine REALAUDIO_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2295,7 +2424,7 @@ oreal()
 
 	default_to_any REALAUDIO_SERVERS $index
 
-	for server in `combine REALAUDIO_SERVERS $index`
+	for server in $(combine REALAUDIO_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2338,6 +2467,33 @@ ovnc()
 	do
 		outgoing_tcp_any vnc "$1" "$ports" VNC_SERVERS $2
 	done
+}
+
+##############################################################################
+# Incoming REACHOUT
+#
+# Note: REACHOUT provides remote control of other hosts so don't allow it
+# across a firewall. If you need to run internal REACHOUT servers, restrict
+# access to known clients.
+#
+# Open: tcp/43188
+
+ireach()
+{
+	incoming_tcp_only reach "$1" 43188 REACHOUT_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing REACHOUT
+#
+# Note: Permit this if you need to remotely control external hosts running
+# REACHOUT servers.
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+oreach()
+{
+	outgoing_tcp_any reach "$1" 43188 REACHOUT_SERVERS $2
 }
 
 ##############################################################################
@@ -2407,7 +2563,7 @@ intp()
 
 	incoming_udp_any ntp "$targets" 123 NTP_CLIENTS $index 123
 
-	for client in `combine NTP_CLIENTS $index`
+	for client in $(combine NTP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2432,7 +2588,7 @@ ontp()
 
 	outgoing_udp_only ntp "$targets" 123 NTP_SERVERS $index 123
 
-	for server in `combine NTP_SERVERS $index`
+	for server in $(combine NTP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2828,7 +2984,7 @@ ilog()
 
 	chains ilog $index
 
-	for client in `combine SYSLOG_CLIENTS $index`
+	for client in $(combine SYSLOG_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2851,7 +3007,7 @@ olog()
 
 	chains olog $index
 
-	for server in `combine SYSLOG_SERVERS $index`
+	for server in $(combine SYSLOG_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2875,7 +3031,7 @@ sdhcp()
 
 	default_to_any DHCP_CLIENTS $index
 
-	for client in `combine DHCP_CLIENTS $index`
+	for client in $(combine DHCP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2895,6 +3051,8 @@ sdhcp()
 #
 # Note: Only allow DHCP traffic to/from trusted external DHCP servers.
 #
+# Use dhclient rather than pump.
+#
 # Open: udp/68
 
 cdhcp()
@@ -2903,7 +3061,7 @@ cdhcp()
 
 	chains cdhcp $index
 
-	for server in `combine DHCP_SERVERS $index`
+	for server in $(combine DHCP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -2913,12 +3071,32 @@ cdhcp()
 		done
 	done
 
-	if [ -n "`combine DHCP_SERVERS $index`" ]
+	if [ -n "$(combine DHCP_SERVERS $index)" ]
 	then
 		# Incoming address update
 		udp1 icdhcp$index $broadcast_src 67 $broadcast_dst 68
 		udp1 ocdhcp$index $broadcast_src 68 $broadcast_dst 67
 	fi
+}
+
+##############################################################################
+# Incoming TACACS+
+#
+# Open: tcp/49
+
+itacacs()
+{
+	incoming_tcp_any tacacs "$1" 49 TACACS_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing TACACS+
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+otacacs()
+{
+	outgoing_tcp_any tacacs "$1" 49 TACACS_SERVERS $2
 }
 
 ##############################################################################
@@ -2961,7 +3139,7 @@ isnmpt()
 
 	chains isnmpt $index
 
-	for client in `combine SNMP_TRAP_CLIENTS $index`
+	for client in $(combine SNMP_TRAP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -2984,7 +3162,7 @@ osnmpt()
 
 	chains osnmpt $index
 
-	for server in `combine SNMP_TRAP_SERVERS $index`
+	for server in $(combine SNMP_TRAP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3034,7 +3212,7 @@ ospf()
 	then
 		chains ospf $index
 
-		for router in `combine OSPF_ROUTERS $index`
+		for router in $(combine OSPF_ROUTERS $index)
 		do
 			for target in $targets
 			do
@@ -3058,7 +3236,7 @@ irip()
 
 	chains irip $index
 
-	for client in `combine RIP_CLIENTS $index`
+	for client in $(combine RIP_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -3084,7 +3262,7 @@ orip()
 
 	chains orip $index
 
-	for server in `combine RIP_SERVERS $index`
+	for server in $(combine RIP_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3109,7 +3287,7 @@ ikerb()
 
 	default_to_any KERBEROS_CLIENTS $index
 
-	for client in `combine KERBEROS_CLIENTS $index`
+	for client in $(combine KERBEROS_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -3133,7 +3311,7 @@ okerb()
 
 	default_to_any KERBEROS_SERVERS $index
 
-	for server in `combine KERBEROS_SERVERS $index`
+	for server in $(combine KERBEROS_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3148,7 +3326,8 @@ okerb()
 # Incoming PPTP
 #
 # Note: You must have pptp(47) in /etc/protocols to use this.
-# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+# Warning: If you are using microsoft's PPTPv1, upgrade to PPTPv2
+# immediately. It's almost secure. Better yet, upgrade to IPSEC.
 #
 # Open: tcp/1723 pptp
 
@@ -3162,13 +3341,21 @@ then
 
 		default_to_any PPTP_CLIENTS $index
 
-		for client in `combine PPTP_CLIENTS $index`
+		for client in $(combine PPTP_CLIENTS $index)
 		do
 			for target in $targets
 			do
 				tcp iipptp$index oipptp$index $client 1024: $target 1723
 				other pptp iipptp$index oipptp$index $client $target
 			done
+		done
+
+		for vpn in $(combine PPTP_NETWORKS $index)
+		do
+			ipchains -A input -s "$vpn" -j ACCEPT
+			ipchains -A output -d "$vpn" -j ACCEPT
+			yes "$FORWARDING" || ipchains -A forward -s "$vpn" -j ACCEPT
+			yes "$FORWARDING" || ipchains -A forward -d "$vpn" -j ACCEPT
 		done
 	}
 fi
@@ -3177,7 +3364,8 @@ fi
 # Outgoing PPTP
 #
 # Note: You must have pptp(47) in /etc/protocols to use this.
-# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+# Warning: If you are using microsoft's PPTPv1, upgrade to PPTPv2
+# immediately. It's almost secure. Better yet, upgrade to IPSEC.
 #
 # Open: tcp(ack)/1024-4999,61000-65096 pptp
 
@@ -3191,7 +3379,7 @@ then
 
 		default_to_any PPTP_SERVERS $index
 
-		for server in `combine PPTP_SERVERS $index`
+		for server in $(combine PPTP_SERVERS $index)
 		do
 			for target in $targets
 			do
@@ -3219,7 +3407,7 @@ then
 
 		default_to_any IPSEC_CLIENTS $index
 
-		for client in `combine IPSEC_CLIENTS $index`
+		for client in $(combine IPSEC_CLIENTS $index)
 		do
 			for target in $targets
 			do
@@ -3248,7 +3436,7 @@ oipsec()
 
 		default_to_any IPSEC_SERVERS $index
 
-		for server in `combine IPSEC_SERVERS $index`
+		for server in $(combine IPSEC_SERVERS $index)
 		do
 			for target in $targets
 			do
@@ -3274,7 +3462,7 @@ iping()
 
 	chains iping $index
 
-	for client in `combine PING_CLIENTS $index`
+	for client in $(combine PING_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -3301,7 +3489,7 @@ oping()
 
 	default_to_any PING_SERVERS $index
 
-	for server in `combine PING_SERVERS $index`
+	for server in $(combine PING_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3327,7 +3515,7 @@ itrace()
 
 	chains itrace $index
 
-	for client in `combine TRACEROUTE_CLIENTS $index`
+	for client in $(combine TRACEROUTE_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -3357,7 +3545,7 @@ otrace()
 
 	default_to_any TRACEROUTE_SERVERS $index
 
-	for server in `combine TRACEROUTE_SERVERS $index`
+	for server in $(combine TRACEROUTE_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3380,13 +3568,13 @@ otrace()
 #
 # Open: destination-unreachable, source-quench, time-exceeded, parameter-problem
 
-mand_icmp()
+other_icmp()
 {
 	local targets="$1" index=$2
 
 	chains icmp $index
 
-	for code in `combine OTHER_INCOMING_ICMP $index`
+	for code in $(combine OTHER_INCOMING_ICMP $index)
 	do
 		for target in $targets
 		do
@@ -3394,7 +3582,7 @@ mand_icmp()
 		done
 	done
 
-	for code in `combine OTHER_OUTGOING_ICMP $index`
+	for code in $(combine OTHER_OUTGOING_ICMP $index)
 	do
 		for target in $targets
 		do
@@ -3424,7 +3612,7 @@ mand_danger()
 	# Permit specific external X clients to connect
 	# Note: Don't use this
 
-	for client in `combine XWIN_CLIENTS $index`
+	for client in $(combine XWIN_CLIENTS $index)
 	do
 		for target in $targets
 		do
@@ -3435,7 +3623,7 @@ mand_danger()
 	# Permit connection to specific external X servers
 	# Note: Don't use this
 
-	for server in `combine XWIN_SERVERS $index`
+	for server in $(combine XWIN_SERVERS $index)
 	do
 		for target in $targets
 		do
@@ -3443,7 +3631,7 @@ mand_danger()
 		done
 	done
 
-	for ports in `combine XWIN_PORTS $index` `combine EVIL_TCP_PORTS $index`
+	for ports in $(combine XWIN_PORTS $index) $(combine EVIL_TCP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3452,7 +3640,7 @@ mand_danger()
 		done
 	done
 
-	for ports in `combine EVIL_UDP_PORTS $index`
+	for ports in $(combine EVIL_UDP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3496,7 +3684,7 @@ mand_spoof()
 # Open (incoming): whatever you add
 # Open (outgoing): tcp(ack)/1024-4999,61000-65096
 
-mand_user()
+other_user()
 {
 	local targets="$1" index=$2
 
@@ -3525,6 +3713,103 @@ mand_user()
 }
 
 ##############################################################################
+# REJECT TCP Ports
+#
+# Specify TCP ports to REJECT even though the default policy is DENY. This
+# is one way to prevent 30 second delays when connecting to FTP and SMTP
+# servers that attempt to connect to your IDENT/AUTH server and when
+# connecting to IRC servers that attempt to connect to your SOCKS server.
+#
+# Another way to prevent these delays is to leave the ports open and don't
+# have those servers running. You could also demand that the administrators
+# of such FTP, SMTP and IRC servers modify their servers' behaviour to
+# timeout after a few seconds. After all, packets can probably get to Mars
+# and back in less than 30 seconds.
+#
+# Note: You will also need to allow outgoing ICMP 3 (destination
+# unreachable) for the REJECT to work.
+#
+# Note: This has no effect if BLOCKIN="REJECT". It also has no effect if
+# the ports listed here are for services that are accepted above.
+#
+# Note: Don't do this. By allowing outgoing destination unreachable packets,
+# you are allowing attackers to identify your operating systems and map your
+# network and obtain valuable strategic information which helps them to
+# focus future attacks.
+#
+# Open: icmp/destination-unreachable (via OTHER_OUTGOING_ICMP)
+
+reject_tcp()
+{
+	[ "$BLOCKIN" = "REJECT" ] && return
+
+	local targets="$1" index=$2
+
+	chain reject $index
+
+	# Reject incoming tcp packets rather than deny them
+
+	for port in $(combine REJECT_TCP_PORTS $index)
+	do
+		for target in $targets
+		do
+			notcp1 reject$index $any : $target $port REJECT $LOG
+		done
+	done
+}
+
+##############################################################################
+# Multicasting
+#
+# Specify which multicast sessions are allowed in or out of your networks.
+# Note: To make this work well, users need to be able to specify the
+# multicast sessions that they wish to receive and the policy file should be
+# modified and the firewall reloaded when appropriate.
+#
+
+multicast()
+{
+	local targets="$1" index=$2
+
+	chains mcast $index
+
+	# Accept incoming multicast packets
+
+	if [ -n "$INCOMING_MULTICAST" ]
+	then
+		set $INCOMING_MULTICAST
+		while [ $# != 0 ]
+		do
+			local group=$1 port=$2
+			shift; shift
+
+			[ -z "$group" -o -z "$port" ] && break
+
+			udp1 imcast$index $any : $group $port
+		done
+	fi
+
+	# Accept outgoing multicast packets
+
+	if [ -n "$OUTGOING_MULTICAST" ]
+	then
+		set $OUTGOING_MULTICAST
+		while [ $# != 0 ]
+		do
+			local group=$1 port=$2
+			shift; shift
+
+			[ -z "$group" -o -z "$port" ] && break
+
+			for target in $targets
+			do
+				udp1 omcast$index $target : $group $port
+			done
+		done
+	fi
+}
+
+##############################################################################
 # No Log
 #
 # After you've set up your firewall, you may find regular, harmless packets
@@ -3533,7 +3818,7 @@ mand_user()
 # and they will be blocked but not logged.
 #
 
-mand_nolog()
+other_nolog()
 {
 	local targets="$1" index=$2
 
@@ -3541,7 +3826,7 @@ mand_nolog()
 
 	# Deny incoming udp packets without logging them
 
-	for port in `combine INOLOG_UDP_PORTS $index`
+	for port in $(combine INOLOG_UDP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3551,7 +3836,7 @@ mand_nolog()
 
 	# Reject outgoing udp packets without logging them
 
-	for port in `combine ONOLOG_UDP_PORTS $index`
+	for port in $(combine ONOLOG_UDP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3561,7 +3846,7 @@ mand_nolog()
 
 	# Deny incoming tcp packets without logging them
 
-	for port in `combine INOLOG_TCP_PORTS $index`
+	for port in $(combine INOLOG_TCP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3571,7 +3856,7 @@ mand_nolog()
 
 	# Reject outgoing tcp packets without logging them
 
-	for port in `combine ONOLOG_TCP_PORTS $index`
+	for port in $(combine ONOLOG_TCP_PORTS $index)
 	do
 		for target in $targets
 		do
@@ -3581,7 +3866,7 @@ mand_nolog()
 
 	# Deny incoming packets for other protocols without logging them
 
-	for protocol in `combine INOLOG_PROTO $index`
+	for protocol in $(combine INOLOG_PROTO $index)
 	do
 		for target in $targets
 		do
@@ -3591,7 +3876,7 @@ mand_nolog()
 
 	# Reject outgoing packets for other protocols without logging them
 
-	for protocol in `combine ONOLOG_PROTO $index`
+	for protocol in $(combine ONOLOG_PROTO $index)
 	do
 		for target in $targets
 		do
@@ -3684,7 +3969,7 @@ init_portfw()
 		ipchains -I input -j fwmark
 	else
 		# There may only be one address on this interface
-		dstaddr="`index UNTRUSTED_ADDRESSES 0`"
+		dstaddr="$(index UNTRUSTED_ADDRESSES 0)"
 		if echo "$dstaddr" | grep "," >/dev/null
 		then
 			log -s "Too many addresses - use alias port porwarding instead"
@@ -3766,40 +4051,43 @@ init_portfw()
 
 	if not yes "$ALIAS_PORT_FORWARDING"
 	then
-		set $PORTRANGEFW
-
-		# Create and insert the fwmark chain if it wasn't created earlier
-		if [ $# != 0 -a -z "$chain_fwmark" ]
+		if [ -n "$PORTRANGEFW" ]
 		then
-			chain fwmark
-			ipchains -I input -j fwmark
+			set $PORTRANGEFW
+
+			# Create and insert the fwmark chain if it wasn't created earlier
+			if [ $# != 0 -a -z "$chain_fwmark" ]
+			then
+				chain fwmark
+				ipchains -I input -j fwmark
+			fi
+
+			# Port forward marked connections to an internal host
+			[ $# != 0 ] && ipmasqadm mfw -A -m 1000 -r $toaddr
+
+			# Mark all packets in each port range for identification
+			while [ $# != 0 ]
+			do
+				local proto=$1 portrange=$2 toaddr=$3
+				shift; shift; shift
+
+				if [ -z "$proto" -o -z "$portrange" -o -z "$toaddr" ]
+				then
+					log -s "Invalid Port Range Forwarding instruction: protocol=\"$proto\" portrange=\"$portrange\" toaddr=\"$toaddr\""
+					break
+				fi
+
+				if echo "$portrange" | grep ":" >/dev/null
+				then
+					:
+				else
+					log -s "Invalid Port Range: portrange=\"$portrange\""
+					break
+				fi
+
+				ipchains -A fwmark -p $proto -d $dstaddr $portrange -m 1000
+			done
 		fi
-
-		# Port forward marked connections to an internal host
-		[ $# != 0 ] && ipmasqadm mfw -A -m 1000 -r $toaddr
-
-		# Mark all packets in each port range for identification
-		while [ $# != 0 ]
-		do
-			local proto=$1 portrange=$2 toaddr=$3
-			shift; shift; shift
-
-			if [ -z "$proto" -o -z "$portrange" -o -z "$toaddr" ]
-			then
-				log -s "Invalid Port Range Forwarding instruction: protocol=\"$proto\" portrange=\"$portrange\" toaddr=\"$toaddr\""
-				break
-			fi
-
-			if echo "$portrange" | grep ":" >/dev/null
-			then
-				:
-			else
-				log -s "Invalid Port Range: portrange=\"$portrange\""
-				break
-			fi
-
-			ipchains -A fwmark -p $proto -d $dstaddr $portrange -m 1000
-		done
 	fi
 }
 
@@ -3835,7 +4123,19 @@ init_nat()
 			done
 		done
 
-		local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+		#local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+
+		case "$dstaddr" in
+			*/*)
+				local base="`echo $dstaddr | sed 's/\/.*$//'`"
+				local bits="`echo $dstaddr | sed 's/^.*\///'`"
+				;;
+			*)
+				local base="$dstaddr"
+				local bits=""
+				;;
+		esac
+
 		[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
 		ip rule delete from $toaddr nat $base 2>/dev/null
 	done
@@ -3869,7 +4169,20 @@ init_nat()
 		done
 
 		# Translate the source addresses of outgoing packets
-		base="${dstaddr%/*}" bits="${dstaddr#*/}"
+
+		#local base="${dstaddr%/*}" bits="${dstaddr#*/}"
+
+		case "$dstaddr" in
+			*/*)
+				local base="`echo $dstaddr | sed 's/\/.*$//'`"
+				local bits="`echo $dstaddr | sed 's/^.*\///'`"
+				;;
+			*)
+				local base="$dstaddr"
+				local bits=""
+				;;
+		esac
+
 		[ "$base" != "$dstaddr" ] && toaddr="$toaddr/$bits"
 		ip rule add from $toaddr nat $base priority 10010
 	done
@@ -3953,12 +4266,12 @@ do_start_filter()
 	done
 
 	# Catch packets claiming to be to or from illegal networks
-	for illegal_netork in $ILLEGAL_NETWORKS
+	for illegal_network in $ILLEGAL_NETWORKS
 	do
-		ipchains -A ispoof -s $illegal_netork -j $BLOCKIN $LOG
-		ipchains -A ispoof -d $illegal_netork -j $BLOCKIN $LOG
-		ipchains -A ospoof -s $illegal_netork -j $BLOCKOUT $LOG
-		ipchains -A ospoof -d $illegal_netork -j $BLOCKOUT $LOG
+		ipchains -A ispoof -s $illegal_network -j $BLOCKIN $LOG
+		ipchains -A ispoof -d $illegal_network -j $BLOCKIN $LOG
+		ipchains -A ospoof -s $illegal_network -j $BLOCKOUT $LOG
+		ipchains -A ospoof -d $illegal_network -j $BLOCKOUT $LOG
 	done
 
 	# Catch incoming packets with the wrong type of broadcast address
@@ -4017,7 +4330,7 @@ do_start_filter()
 		i=`expr $i + 1`
 
 		# There may be aliases and hence multiple ip addresses.
-		TARGET_self="`index UNTRUSTED_ADDRESSES $i | sed 's/,/ /g'`"
+		TARGET_self="$(index UNTRUSTED_ADDRESSES $i | sed 's/,/ /g')"
 
 		# Create incoming and outgoing chains for the untrusted network interface
 		# Note: May not work for things like ppp+
@@ -4026,6 +4339,7 @@ do_start_filter()
 		# Disallow spoofing
 		mand_spoof "$TARGET_self" "$i"
 		ipchains -A i$untrusted -j ispoof$i
+
 		# Only perform full spoof protection on external untrusted interfaces
 		if not member $untrusted $INTERNAL_UNTRUSTED_INTERFACES
 		then
@@ -4049,11 +4363,24 @@ do_start_filter()
 		ipchains -A o$untrusted -j odanger$i
 
 		# Add the input/output rule chains to allow requested services
-		for service in `combine SERVICES $i`
+		for service in $(combine SERVICES $i)
 		do
 			# Extract the service name and target (no target implies self)
-			service_name="${service%.*}"
-			service_target="${service#*.}"
+
+			# service_name="${service%.*}"
+			# service_target="${service#*.}"
+
+			case "$service" in
+				*.*)
+					local service_name="`echo $service | sed 's/\..*$//'`"
+					local service_target="`echo $service | sed 's/^.*\.//'`"
+					;;
+				*)
+					local service_name="$service"
+					local service_target=""
+					;;
+			esac
+
 			[ "$service" = "$service_name" ] && service_target="self"
 			eval target=\"\$TARGET_$service_target\"
 
@@ -4063,7 +4390,7 @@ do_start_filter()
 				continue
 			fi
 
-			if not typeset -f $service_name >/dev/null
+			if not defined_service $service_name
 			then
 				log -s "$service_name is not a recognised service name"
 				continue
@@ -4073,17 +4400,24 @@ do_start_filter()
 			$service_name "$target" "$i"
 
 			# Install the service chain for this interface unless already done
-			eval [ -z "\$installed_${untrusted}_$service_name$i" ] || continue
+			eval [ -z "\"\$installed_${untrusted}_$service_name$i\"" ] || continue
 			eval installed_${untrusted}_$service_name$i="1"
 			ipchains -A i$untrusted -j i$service_name$i
 			ipchains -A o$untrusted -j o$service_name$i
 		done
 
-		mand_user "$any" "$i"
-		mand_icmp "$any" "$i"
-		mand_nolog "$any" "$i"
+		other_user "$any" "$i"
+		other_icmp "$any" "$i"
+		reject_tcp "$any" "$i"
+		multicast "$any" "$i"
+		other_nolog "$any" "$i"
 
-		for service in iuser$i ouser$i icmp$i frag nolog$i
+		for service in reject$i
+		do
+			ipchains -A i$untrusted -j $service
+		done
+
+		for service in iuser$i ouser$i icmp$i mcast$i frag nolog$i
 		do
 			ipchains -A i$untrusted -j i$service
 			ipchains -A o$untrusted -j o$service
@@ -4170,7 +4504,7 @@ then
 					continue
 				fi
 				required="`expr $required + 1`"
-				eval modprobe ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
+				eval insmod ip_masq_$module \$MASQ_MODULES_$module && loaded="`expr $loaded + 1`"
 			done
 
 			[ "$loaded" = "$required" ]

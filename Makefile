@@ -1,7 +1,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 
 # Makefile - fwup
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \
@@ -30,6 +30,7 @@ help:
 	echo "    install   - install the firewall scripts (as root)"; \
 	echo "    policy    - install firewall.policy (as root)"; \
 	echo "    uninstall - uninstall the firewall scripts and policy (as root)"; \
+	echo "    lrpkg     - create an LRP package of the firewall and policy"; \
 	echo "    ls        - list installed firewall scripts and policy file"; \
 	echo "    decent    - change \"EVIL\" to \"EXTREMELY_DANGEROUS\" (before install)"; \
 	echo "    dist      - make a distribution"; \
@@ -48,6 +49,9 @@ policy:
 
 uninstall:
 	@./make-uninstall
+
+lrpkg:
+	@./make-lrpkg
 
 ls:
 	@./make-ls
@@ -71,12 +75,12 @@ dist:
 	test "$$src" != "$$dst" -a ! -e "$$dst" && ln -s $$src $$dst; \
 	tar chzf $$dst.tar.gz $$dst/[RMfm]* $$dst/examples/* $$dst/tools/* $$dst/patches/*; \
 	test -h "$$dst" && rm -f $$dst; \
-	tar tzf $$dst.tar.gz
+	tar tzvf $$dst.tar.gz
 
 backup:
 	@name=`basename \`pwd\``; \
 	cd ..; \
 	tar czf $$name.tar.gz $$name; \
-	tar tzf $$name.tar.gz
+	tar tzvf $$name.tar.gz
 
 # vi:set ts=4 sw=4

@@ -1,7 +1,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -49,12 +49,14 @@
 # Each section also contains commented out variables that can be uncommented
 # and possibly edited to supply policy information to fwup. Some of them
 # show the default values used by fwup. Others are choices. Others still are
-# just examples. Hopefully it's clear which is which. Each policy variable
-# is explained when encountered.
+# just examples. Hopefully it's clear which is which. Let me know if it
+# isn't. Each policy variable is explained when encountered.
 #
-# After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
-# your untrusted interfaces (as root from the inside and the outside) to make
-# sure that you got what you wanted. If there are any surprises, investigate.
+# After setting up a firewall, don't forget to run port scanners (e.g. nmap)
+# on your untrusted interfaces (as root from the inside and the outside) to
+# make sure that you got what you wanted. If there are any surprises,
+# investigate. The tools directory contains a portscan script that uses nmap
+# to perform many different port scans, looking for common filtering errors.
 #
 
 ##############################################################################
@@ -75,14 +77,15 @@
 # can safely be started just once, at boot time, by specifying all of the
 # required addresses in the policy file (see INTERNAL_NETWORKS and
 # UNTRUSTED_ADDRESSES below). If port forwarding is required, the firewall
-# must be started after the interfaces are brought up.
+# must be started after the interfaces are brought up. This firewall's
+# installation procedure ensures that the firewall will be reloaded at all
+# the right times.
 #
 # Note: All addresses/aliases on an interface are treated equally. This is
 # justified by the fact that it is the interface that is trusted or
 # untrusted, not one of it's addresses. The real reason, however, is that
 # differentiating between aliases isn't well supported and it's only needed
-# for M:N NAPT. Currently, fwup only supports M:1 NAPT (masquerading and port
-# forwarding). The next release will also support M:N NAPT.
+# for M:N NAPT.
 
 # Packets on trusted interfaces will be accepted (e.g. eth0 lo)
 TRUSTED_INTERFACES="lo"
@@ -363,15 +366,18 @@ UNTRUSTED_INTERFACES=""
 # do that.
 # EVIL_TCP_PORTS="2049 1080 2000:2010"
 #
-# e.g. The trojan cavalry
-# EVIL_TCP_PORTS="$EVIL_TCP_PORTS 555 1243 6776 6969 10752 12345:12346 12361:12362 21554 23456 30100 30102 31337 31785 31787"
+# e.g. The trojan cavalry (Note: Some of these will interfere with masquerading)
+# EVIL_TCP_PORTS="$EVIL_TCP_PORTS 2 24 30:31 41 48 50 59 99 121 133 142 146 170 334 420 421 456 510 531 555 605 666:667 669 692 777 808 911 999:1001 1010:1012 1015:1016 1019:1020 1024 1027 1029 1035 1042 1045 1049:1050 1054 1080:1083 1090 1095 1097:1099 1150:1151 1170 1207 1212 1234 1243 1245 1255:1256 1269 1313 1338 1492 1509 1524 1600 1777 1807 1966 1969 1981 1999 2023 2080 2115 2140 2155 2222 2255 2283 2300 2339 2345 2565 2583 2589 2600 2716 2773 2801 2989 3000 3024 3129 3148 3150 3456 3459 3700 3777 3791 3801 4000 4092 4242 4321 4444 4567 4590 4950 5000:5002 5010:5011 5025 5031:5032 5321 5333 5343 5400:5402 5512 5534 5550 5555:5557 5569 5636:5638 5742 5760 5880 5882 5888:5889 6006 6272 6400 6661 6666 6669:6671 6711:6713 6723 6771 6776 6883 6912 6939 6969:6970 7000:7001 7215 7300:7301 7306:7308 7424 7597 7626 7777 7789 7891 7983 8787 8988:8989 9000 9400 9872:9876 9878 9989 9998:10000 10005 10008 10067 10085 10086 10100:10101 10167 10520 10528 10607 10752 11000 11050:11051 11223 12076 12223 12345 12346 12349 12361:12363 12624 12631 12701 12754 12973 12975 13000 13010 13013:13014 13223 13473 14500:14503 15000 15092 15104 15382 15858 16484 16660 16772 16969 17166 17300 17449 17499:17500 17569 17593 17777 18959 19864 20000:20002 20005 20023:20034 20139 20331 20432 21544 21554 22222 23005:23006 23023 23032 23432 23456 23476 23477 23777 24000 25685 25686 25982 26681 27374 27573 27665 28678 29104 29369 29891 30000:30001 30003 30029 30100:30103 30133 30303 30464 30947 30999 31335:31339 31557 31666 31785 31787:31788 31789:31790 31791:31792 32001 32100 32418 32768 33270 33333 33567 33577 33777 33911 34324 34444 37237 37651 40412 40421:40423 40425:40426 41337 41666 44444 44575 46626 46882 49301 50130 50505 50766 51966 52317 53001 54283 54320 54321 55165:55166 57341 58339 60000:60001 60008 60068 60411 61348 61466 61603 63485 64101 65000 65390 65421 65432 65534 65535"
+# Note: You might also want to add 6667 here (SubSeven, NetBus, IRC used by
+# DDos Zombies but not if you use IRC), and 8080 (RingZero, Brown Orifice, but
+# not if need to use websites/proxies with this port).
 
 # List of particularly nasty udp ports to avoid like the plague.
 # These will be blocked before anything else is accepted.
 # EVIL_UDP_PORTS=""
 #
-# e.g. The trojan cavalry (Note: The last two will interfere with masquerading)
-# EVIL_UDP_PORTS="$EVIL_UDP_PORTS 31 456 555 666 1001 1170 1234 1245 1492 1600 1807 1981 1999 2001 2023 2115 2140 2565 2801 2989 3024 3150 3700 4092 4950 5000 5001 50505 5321 5400:5402 5569 5742 6670 6711 7000 7300:7308 7789 9872 10067 10167 11223 12223 16969 20000:20001 20034 21544 22222 26274 27374 31337:31338 31339 31666 31789 31791 33333 34324 40412 40421:40423 40426 47262 50776 53001 61446 65000"
+# e.g. The trojan cavalry (Note: Some of these will interfere with masquerading)
+# EVIL_UDP_PORTS="$EVIL_UDP_PORTS 1 2 31 41 146 456 531 555 666 911 1001 1019 1170 1200 1201 1234 1245 1349 1492 1600 1807 1981 1999 2001 2023 2115 2140 2339 2565 2583 2801 2989 3024 3150 3700 3801 4092 4567 4950 5000:5001 5321 5400:5402 5555 5569 5742 5882 5888 6400 6670 6711 6838 6939 6969 7000 7301:7308 7424 7789 9325 9872 10067 10167 10520 10607 10666 11223 12223 12345 12361:12362 12623 12631 13000 16969 18753 20000:20001 20034 20433 21544 22222 23476 26274 27374 27444 28431 28432 29891 30103 31335 31337:31339 31666 31789 31791 33333 34324 34555 35555 40412 40421:40423 40426 47262 50505 50766 50776 53001 54321 61446 65000 65432 65532 65535"
 
 # Log all denied/rejected packets
 # Note: See below for blocking selected packets without logging them.
@@ -415,8 +421,16 @@ UNTRUSTED_INTERFACES=""
 # (e.g. ihttp.www) where service is the name of a supported service and target
 # refers to the value of a target variable (e.g. TARGET_www) which contains
 # a set of IP addresses for which the service is to be allowed. If the target
-# is omitted from a SERVICES variable, the service will be allowed for the
+# is omitted from a SERVICES variable, the service will be allowed for all the
 # IP addresses of the corresponding untrusted interface.
+#
+# So if an interface has multiple addresses (a.k.a. IP Aliasing) and you
+# only want to allow a service for some of those addresses, you must
+# supply a target. For example, eth0 is 10.0.0.1, 10.0.0.2 and 10.0.0.3
+# and you want to allow incoming HTTPS to 10.0.0.1 and 10.0.0.2 only:
+#
+#     TARGET_wwwssl="10.0.0.1 10.0.0.2"
+#     SERVICES="$SERVICES ihttps.wwwssl"
 #
 
 ##############################################################################
@@ -456,7 +470,12 @@ UNTRUSTED_INTERFACES=""
 
 # List of DNS servers to which this network may connect.
 # Blank means no hosts.
-# OCDNS_SERVERS="`awk '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
+# if [ -x "$awk_cmd" ]
+# then
+#     OCDNS_SERVERS="`$awk_cmd '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
+# else # without awk
+#     OCDNS_SERVERS="`grep '^nameserver' /etc/resolv.conf | sed -e 's/^nameserver //' -e 's/$/\/32/' | grep -v 127.0.0.1`"
+# fi
 
 ##############################################################################
 # Incoming Server DNS
@@ -644,7 +663,7 @@ UNTRUSTED_INTERFACES=""
 # SPOP_CLIENTS=""
 
 ##############################################################################
-# Outgoing SSL_POP
+# Outgoing SSL-POP
 #
 # Open: tcp(ack)/1024-4999,61000-65096
 
@@ -787,6 +806,12 @@ UNTRUSTED_INTERFACES=""
 # Also, outgoing normal mode ftp is an extremely bad idea since it allows
 # any host to connect to any tcp port above 1023. Instead, restrict
 # connections to a bastion host running an FTP proxy.
+#
+# Also, outgoing passive mode ftp is bad because it allows client hosts
+# to connect to any external host on any tcp port above 1023. This defeats
+# egress filtering and allows trojans to function unhindered. Instead,
+# restrict connections to a bastion host running an FTP proxy. Or at least
+# turn on tcp trojan blocking above (EVIL_TCP_PORTS).
 #
 # Open (normal): tcp/1024-4999 tcp(ack)/1024-4999,61000-65096
 # Open (passive): tcp(ack)/1024-4999,61000-65096
@@ -1255,6 +1280,35 @@ UNTRUSTED_INTERFACES=""
 # OUTGOING_VNC_PORTS="5800:5801 5900:5902"
 
 ##############################################################################
+# Incoming REACHOUT
+#
+# Note: REACHOUT provides remote control of other hosts so don't allow it
+# across a firewall. If you need to run internal REACHOUT servers, restrict
+# access to known clients.
+#
+# Open: tcp/43188
+
+# SERVICES="$SERVICES ireach"
+
+# List of hosts which may connect to local REACHOUT servers.
+# Blank means no hosts.
+# REACHOUT_CLIENTS=""
+
+##############################################################################
+# Outgoing REACHOUT
+#
+# Note: Permit this if you need to remotely control external hosts running
+# REACHOUT servers.
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+# SERVICES="$SERVICES oreach"
+
+# List of REACHOUT servers to which this network may connect.
+# Blank means all hosts.
+# REACHOUT_SERVERS=""
+
+##############################################################################
 # Incoming PCANYWHERE
 #
 # Note: This is inherently dangerous so limit it to specific hosts.
@@ -1586,7 +1640,7 @@ UNTRUSTED_INTERFACES=""
 # Blank means all hosts.
 # DIALPAD_SERVERS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24 216.52.249.0/24"
 
-# e.g
+# e.g.
 # PORTFW="$PORTFW tcp 51210 $target 51210 10"
 # PORTFW="$PORTFW udp 51200 $target 51200 10"
 # PORTFW="$PORTFW udp 51201 $target 51201 10"
@@ -1802,6 +1856,8 @@ UNTRUSTED_INTERFACES=""
 #
 # Note: Only allow DHCP traffic to/from trusted external DHCP servers.
 #
+# Use dhclient rather than pump.
+#
 # Open: udp/68
 
 # SERVICES="$SERVICES cdhcp"
@@ -1809,6 +1865,28 @@ UNTRUSTED_INTERFACES=""
 # List of DHCP servers with which this network may communicate.
 # Blank means no hosts.
 # DHCP_SERVERS=""
+
+##############################################################################
+# Incoming TACACS+
+#
+# Open: tcp/49
+
+# SERVICES="$SERVICES itacacs"
+
+# List of TACACS+ clients that may connect to this network.
+# Blank means all hosts.
+# TACACS_CLIENTS=""
+
+##############################################################################
+# Outgoing TACACS+
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+# SERVICES="$SERVICES otacacs"
+
+# List of TACACS+ server to which this network mamy connect.
+# Blank means all hosts.
+# TACACS_SERVERS=""
 
 ##############################################################################
 # Incoming SNMP
@@ -1959,7 +2037,8 @@ UNTRUSTED_INTERFACES=""
 # Incoming PPTP
 #
 # Note: You must have pptp(47) in /etc/protocols to use this.
-# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+# Warning: If you are using microsoft's PPTPv1, upgrade to PPTPv2
+# immediately. It's almost secure. Better yet, upgrade to IPSEC.
 #
 # Open: tcp/1723 pptp
 
@@ -1969,11 +2048,16 @@ UNTRUSTED_INTERFACES=""
 # Blank means all hosts.
 # PPTP_CLIENTS=""
 
+# List of networks handed out by the local pptp server.
+# Blank means none.
+# PPTP_NETWORKS=""
+
 ##############################################################################
 # Outgoing PPTP
 #
 # Note: You must have pptp(47) in /etc/protocols to use this.
-# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+# Warning: If you are using microsoft's PPTPv1, upgrade to PPTPv2
+# immediately. It's almost secure. Better yet, upgrade to IPSEC.
 #
 # Open: tcp(ack)/1024-4999,61000-65096 pptp
 
@@ -2030,6 +2114,9 @@ UNTRUSTED_INTERFACES=""
 # is very useful. You can restrict outgoing PING to specific hosts if you
 # want.
 #
+# Note: This can also be used to tunnel Loki commands and hence is extremely
+# dangerous. If you do allow this, restrict to very few remote addresses.
+#
 # Open: icmp/echo-reply
 
 # SERVICES="$SERVICES oping"
@@ -2083,11 +2170,12 @@ UNTRUSTED_INTERFACES=""
 # Other ICMP packets
 #
 # Note: The default icmp rules allow incoming destination-unreachable and
-# outgoing fragmentation-needed, incoming and outgoing source-quench, incoming
-# and outgoing time-exceeded and incoming and outgoing parameter-problem.
-# There's probably no reason to change this unless you have set BLOCKIN to be
-# REJECT in which case you need to put 3 into OTHER_OUTGOING_ICMP (instead of
-# fragmentation-needed).
+# outgoing fragmentation-needed, incoming and outgoing source-quench,
+# incoming and outgoing time-exceeded and incoming and outgoing
+# parameter-problem. There's probably no reason to change this unless you
+# have set BLOCKIN to be REJECT (or are using REJECT_TCP_PORTS below) in
+# which case you need to put destination-unreachable (or 3) into
+# OTHER_OUTGOING_ICMP (instead of fragmentation-needed).
 #
 # Open: destination-unreachable, source-quench, time-exceeded, parameter-problem
 
@@ -2123,6 +2211,40 @@ UNTRUSTED_INTERFACES=""
 # OTHER_OUTGOING_TCP_SERVICES=""
 
 ##############################################################################
+# REJECT TCP Ports
+#
+# Specify TCP ports to REJECT even though the default policy is DENY. This
+# is one way to prevent 30 second delays when connecting to FTP and SMTP
+# servers that attempt to connect to your IDENT/AUTH server and when
+# connecting to IRC servers that attempt to connect to your SOCKS server.
+#
+# Another way to prevent these delays is to leave the ports open and don't
+# have those servers running. You could also demand that the administrators
+# of such FTP, SMTP and IRC servers modify their servers' behaviour to
+# timeout after a few seconds. After all, packets can probably get to Mars
+# and back in less than 30 seconds.
+#
+# Note: You will also need to allow outgoing ICMP 3 (destination
+# unreachable) for the REJECT to work.
+#
+# Note: This has no effect if BLOCKIN="REJECT". It also has no effect if
+# the ports listed here are for services that are accepted above.
+#
+# Note: Don't do this. By allowing outgoing destination unreachable packets,
+# you are allowing attackers to identify your operating systems and map your
+# network and obtain valuable strategic information which helps them to
+# focus future attacks.
+#
+# Open: icmp/destination-unreachable (via OTHER_OUTGOING_ICMP)
+
+# Specific TCP ports to REJECT.
+# Blank means no ports.
+# REJECT_TCP_PORTS=""
+
+# e.g.
+# REJECT_TCP_PORTS="113"  # auth/ident
+
+##############################################################################
 # No Log
 #
 # After you've set up your firewall, you may find regular, harmless packets
@@ -2146,6 +2268,25 @@ UNTRUSTED_INTERFACES=""
 
 # INOLOG_PROTO=""
 # ONOLOG_PROTO=""
+
+##############################################################################
+# Multicasting
+#
+# Specify which multicast sessions are allowed in or out of your networks.
+# Note: To make this work well, users need to be able to specify the
+# multicast sessions that they wish to receive and the policy file should be
+# modified and the firewall reloaded when appropriate.
+#
+
+# List of multicast sessions allowed in to your networks.
+# Blank means none.
+# INCOMING_MULTICAST=""
+# e.g. INCOMING_MULTICAST="sap.mcast.net 9875"
+
+# List of multicast sessions allowed out of your networks.
+# Blank means none.
+# OUTGOING_MULTICAST=""
+# e.g. OUTGOING_MULTICAST="sap.mcast.net 9875"
 
 ##############################################################################
 # Glossary
@@ -2272,7 +2413,7 @@ UNTRUSTED_INTERFACES=""
 #
 # ip_masq_portfw - comes with the kernel
 # ip_masq_mfw    - comes with the kernel
-# ip_masq_h323   - http://www.coritel.it/projects/sofia/nat.html
+# ip_masq_h323   - http://www.coritel.it/coritel/ip/sofia/nat/nat2/nat2.htm
 # ip_masq_ftp    - comes with the kernel
 # ip_masq_irc    - comes with the kernel
 # ip_masq_icq    - http://members.tripod.com/~djsf/masq-icq/

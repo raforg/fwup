@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2001 raf <raf@raf.org>
+# Copyright (C) 1999-2002 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,10 @@
 
 # firewall - control script for an ipchains packet filtering firewall
 #
-# chkconfig: 2345 09 91
+# chkconfig: 2345 00 99
 # description: Firewall provides network security and address/port translation
-# lockfile: /var/lock/subsys/firewall
-# config: /etc/firewall.policy
 #
-# 20010815 raf <raf@raf.org>
+# 20020626 raf <raf@raf.org>
 
 # Set the path explicitly
 
@@ -52,13 +50,16 @@ locate()
 	done
 }
 
-lock="/var/lock/subsys/firewall"
+[ -d /var/lock/subsys ] && lock="/var/lock/subsys/firewall" || lock=""
+[ -z "$lock" ] && [ -d /var/lock ] && lock="/var/lock/firewall"
+[ -z "$lock" ] && lock="/tmp/firewall.lock"
+
 policy="/etc/firewall.policy"
-fwup="`locate fwup`"
-fwdown="`locate fwdown`"
-ipchains="`locate ipchains`"
-ipmasqadm="`locate ipmasqadm`"
-ip="`locate ip`"
+fwup="$(locate fwup)"
+fwdown="$(locate fwdown)"
+ipchains="$(locate ipchains)"
+ipmasqadm="$(locate ipmasqadm)"
+ip="$(locate ip)"
 
 die()
 {
@@ -67,24 +68,45 @@ die()
 }
 
 # See how we were called
+
 case "$1" in
 
 	start|up)
-		[ -e "$lock" ] && die "The Firewall is already up"
+		[ -f "$lock" ] && die "The Firewall is already up"
 		[ -z "$fwup" ] && die "Failed to find executable fwup"
 		[ ! -r "$policy" ] && die "Failed to find readable $policy"
 		policy="$policy" "$fwup" && touch "$lock"
+		exit $?
 		;;
 
 	stop|down)
-		[ ! -e "$lock" ] && die "The Firewall is already down"
+		[ ! -f "$lock" ] && die "The Firewall is already down"
 		[ -z "$fwdown" ] && die "Failed to find executable fwdown"
 		[ ! -r $policy ] && die "Failed to find readable $policy"
 		policy="$policy" "$fwdown" && rm -f "$lock"
+		exit $?
+		;;
+
+	restart)
+		$0 stop && $0 start
+		exit $?
+		;;
+
+	reload|force-reload)
+		rm -f "$lock"
+		$0 start
+		exit $?
+		;;
+
+	reconf)
+		[ -z "$2" ] && die "usage: $0 reconf <config>"
+		[ -r "$policy.$2" ] || die "Failed to find readable policy: $policy.$2"
+		cat "$policy.$2" > "$policy" || die "Failed to reconfigure the firewall"
+		if [ -f "$lock" ]; then $0 reload; exit $?; fi
 		;;
 
 	status)
-		[ -e "$lock" ] && echo "The Firewall is up" || echo "The Firewall is down"
+		[ -f "$lock" ] && echo "The Firewall is up" || echo "The Firewall is down"
 		;;
 
 	probe)
@@ -124,18 +146,22 @@ case "$1" in
 		fi
 		;;
 
-	restart)
-		$0 stop
-		$0 start
-		;;
-
-	reload)
-		rm -f "$lock"
-		$0 start
+	*help)
+		echo "usage: $0 {start|stop|up|down|restart|[force-]reload|reconf <config>|status|probe|help}"
+		echo
+		echo "    start|up        - Start the firewall"
+		echo "    stop|down       - Stop the firewall"
+		echo "    restart         - Stop then start the firewall"
+		echo "    [force-]reload  - Faster than restart"
+		echo "    reconf <config> - Replace $policy with $policy.<config> then reload (if up)"
+		echo "    status          - Tell whether the firewall is up or down"
+		echo "    probe           - Show the state of the firewall in detail"
+		echo "    help            - Print this help"
+		echo
 		;;
 
 	*)
-		echo "usage: $0 {start|stop|up|down|restart|reload|status|probe}"
+		echo "usage: $0 {start|stop|up|down|restart|[force-]reload|reconf <config>|status|probe|help}"
 		exit 1
 		;;
 
