@@ -21,7 +21,7 @@
 
 # Makefile - Install the firewall scripts
 #
-# 20000601 raf <raf2@zip.com.au>
+# 20000817 raf <raf2@zip.com.au>
 
 help:
 	@echo "This Makefile supports the following targets"; \

@@ -23,7 +23,7 @@
 
 # portscan - performs a thorough port scan
 #
-# 20000601 raf <raf2@zip.com.au>
+# 20000817 raf <raf2@zip.com.au>
 
 if [ -z "$*" ]
 then

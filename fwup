@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000601 raf <raf2@zip.com.au>
+# 20000817 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -2327,6 +2327,42 @@ inotes()
 onotes()
 {
 	outgoing_tcp_any notes "$1" 1352 NOTES_SERVERS $2
+}
+
+##############################################################################
+# Incoming DIALPAD
+#
+# Note: I'm not sure about this (is 7175 a src or dst port?)
+#
+# Note: You only need this if you use the dialpad server (www.dialpad.com).
+# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
+# to the list of dialpad networks used below.
+#
+# Open: tcp/1024-4999,51219,61000-65096, udp/51200-51201
+
+odial()
+{
+	incoming_udp_only dial "$1" 51200:51201 DIALPAD_CLIENTS $2
+	incoming_tcp_only dial "$1" 51210 DIALPAD_CLIENTS $2
+	outgoing_tcp_only dial "$1" 7175 DIALPAD_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing DIALPAD
+#
+# Note: I'm not sure about this (is 7175 a src or dst port?)
+#
+# Note: You only need this if you use the dialpad server (www.dialpad.com).
+# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
+# to the list of dialpad networks used below.
+#
+# Open: tcp(ack)/1024-4999,7175,61000-65096, udp/1024-4999,61000-65096
+
+odial()
+{
+	outgoing_udp_only dial "$1" 51200:51201 DIALPAD_SERVERS $2
+	outgoing_tcp_only dial "$1" 51210 DIALPAD_SERVERS $2
+	incoming_tcp_only dial "$1" 7175 DIALPAD_SERVERS $2
 }
 
 ##############################################################################

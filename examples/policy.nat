@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000601 raf <raf2@zip.com.au>
+# 20000817 raf <raf2@zip.com.au>
 
 ##############################################################################
 # About the policy file
@@ -918,7 +918,7 @@ SERVICES="$SERVICES ohttps"
 # Blank means no hosts.
 # HTCP_SERVERS=""
 
-# The NLANR registrar host.
+# The NLANR registrar host (sd.cache.nlanr.net).
 # Blank means no hosts.
 # NLANR_REGISTRAR=""
 
@@ -1362,6 +1362,36 @@ SERVICES="$SERVICES oauth"
 # List of NOTES servers to which this network may connect.
 # Blank means all hosts.
 # NOTES_SERVERS=""
+
+##############################################################################
+# Incoming DIALPAD
+#
+# Note: You only need this if you use the dialpad server (www.dialpad.com).
+# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
+# to the list of dialpad networks used below.
+#
+# Open: tcp/51219,61000-65096, udp/51200-5120
+
+# SERVICES="$SERVICES idial"
+
+# List of hosts which may connect to this host's NOTES server.
+# Blank means no hosts.
+# DIALPAD_CLIENTS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24, 216.52.249.0/24"
+
+##############################################################################
+# Outgoing DIALPAD
+#
+# Note: You only need this if you use the dialpad server (www.dialpad.com).
+# Check http://www.dialpad.com/support/helpsys.html#firewall for updates
+# to the list of dialpad networks used below.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES odial"
+
+# List of NOTES servers to which this network may connect.
+# Blank means no hosts.
+# DIALPAD_SERVERS="4.2.40.0/24 4.2.42.0/24 4.2.46.0/24 4.2.47.0/24 4.2.54.0/24 4.2.64.0/24 4.2.68.0/24 4.2.74.0/24 63.74.89.0/24 209.191.173.0/24, 216.52.249.0/24"
 
 ##############################################################################
 # Incoming SYSLOG

@@ -24,7 +24,7 @@ use strict;
 
 # tuplegram - prints a histogram of connection tuples in tcpdump output
 #
-# 20000601 raf <raf2@zip.com.au>
+# 20000817 raf <raf2@zip.com.au>
 
 my %pairs = ();
 

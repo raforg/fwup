@@ -115,6 +115,8 @@ Here is the list of currently supported services:
     oauth   - outgoing AUTH
     inotes  - incoming NOTES
     onotes  - outgoing NOTES
+    idial   - incoming DIALPAD
+    odial   - outgoing DIALPAD
     ilog    - incoming SYSLOG
     olog    - outgoing SYSLOG
     sdhcp   - DHCP Server
@@ -151,8 +153,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20000601.tar.gz
-    cd firewall-20000601
+    tar xzf firewall-20000817.tar.gz
+    cd firewall-20000817
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -225,13 +227,13 @@ REQUIREMENTS
 
 These can be found at:
 
-  Linux-2.2 - http://www.kernel.org (2.2.15)
-  ipchains  - http://www.rustcorp.com/linux/ipchains (1.3.9)
-  ipmasqadm - http://juanjox.kernelnotes.org (0.4.2)
-  iproute2  - ftp://ftp.inr.ac.ru (000305)
-  nmap      - http://www.insecure.org/nmap (2.53)
-  perl      - http://www.perl.com (5.005_03)
-  Net-DNS   - http://www.perl.org/CPAN/modules/by-module/Net (0.12)
+  Linux-2.2 - http://www.kernel.org/ (2.2.15)
+  ipchains  - http://netfilter.kernelnotes.org/ipchains/ (1.3.9)
+  ipmasqadm - http://juanjox.kernelnotes.org/ (0.4.2)
+  iproute2  - ftp://ftp.inr.ac.ru/ (000305)
+  nmap      - http://www.insecure.org/nmap/ (2.53)
+  perl      - http://www.perl.com/ (5.005_03)
+  Net-DNS   - http://www.perl.org/CPAN/modules/by-module/Net/ (0.12)
 
 COPYING
 ~~~~~~~
@@ -353,6 +355,13 @@ HISTORY
     - Added check to ensure that BLOCK{IN|OUT|FWD} are set to DENY or REJECT
     - Renamed portsummary to tuplegram and added icmp and udp support
 
+20000817
+
+    - Updated the ipchains URL in README
+    - Fixed the explanation why internally initiated port forwarding
+      doesn't work (in the BUGS section below) thanks to Michael Best
+    - Added DIALPAD
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -377,22 +386,52 @@ BUGS
   a feature since doing so seems strange. Let me know if this is a problem.
 
 - When port forwarding, internal hosts shouldn't try to make connections to
-  the forwarded port on the external interface. If the port forwarding host
-  tries, the connection will be made to the same host (i.e. the port is not
-  forwarded - because it arrives on the loopback interface). If an internal
-  host tries, the packets get completely lost (probably because it leaves
-  the network on the default route, across the external interface, in the
-  wrong direction, never to be seen again). If anyone knows a solution to
-  this, I'd like to hear about it. In the meantime, the port forwarding
-  host and other internal hosts must connect directly to internal ports.
-  This can be achieved simply by having a DNS server for internal use only,
-  that maps external names to internal addresses.
+  the forwarded port on the external interface because it doesn't work with
+  a stock kernel. Michael Best has written a patch to linux-2.2.13 to fix this.
+  It's in the patches directory under masq-demasq. Here is his explanation of
+  the problem:
 
-  Michael Best has written a patch to linux-2.2.13 to fix this.
-  It's in the patches directory under masq-demasq. I haven't tested it.
+  Michael Best (michael@com.org) wrote:
+  > What happens is that the first packet is forwarded to the correct host,
+  > but only its destination info has been changed.  For example:
+  >
+  > Host A: 10.101.2.1 (firewall; external address is 216.324.11.123)
+  > Host B: 10.101.2.2 (running web server on port 80)
+  > Host C: 10.101.2.3 (client)
+  >
+  > Host A has 216.324.11.123/80 forwarded to Host B.
+  > Host C tries to connect to 216.324.11.123/80.
+  >
+  > First packet looks like this:
+  >   From 10.101.2.3/1056 to 216.324.11.123/80
+  > It is forwarded:
+  >   From 10.101.2.3/1056 to 10.101.2.2/80
+  > Reply looks like this:
+  >   From 10.101.2.2/80 to 10.101.2.3/1056
+  > It is ignored by the client since it doesn't match any active connection.
+  > Thus the connection is never fully established and appears hung.
+  >
+  > My patch modifies the kernel so that it can modify both the destination and
+  > source addresses of a packet. It still requires that your rules are correct.
+  > Here is what the above would look like with my patch:
+  >
+  > First packet looks like this:
+  >   From 10.101.2.3/1056 to 216.324.11.123/80
+  > It is forwarded:
+  >   From  to 10.101.2.2/80
+  > Here's the reply:
+  >   From 10.101.2.2/80 to 216.324.11.123/64234
+  > This one goes back to the firewall and it forward:
+  >   From 216.324.11.123/80 to 10.101.2.3/1056
+  >
+  > Note that this patch also make possible Starcraft and Warcraft Battle-net
+  > games between two people behind the same firewall.
+  >
+  > I've put my patch at http://www.com.org/~michael/masq-demasq.zip
 
 - There is no support for static NAT between internal networks. Let me know
-  if this is a problem. This needs to be fixed.
+  if this is a problem. This needs to be fixed. In the meantime, you can
+  execute the necessary ip commands separately using priorities below 10000.
 
 - Stopping the firewall stops packet forwarding in general. This is intentional.
   However, on Redhat systems with FORWARD_IPV4="yes" in /etc/sysconfig/network,
@@ -415,6 +454,6 @@ Add support for netfilter/iptables when linux-2.4 is ready
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000601
+Date: 20000817
 Author: raf <raf2@zip.com.au>
 
