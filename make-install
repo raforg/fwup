@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2002 raf <raf@raf.org>
+# Copyright (C) 1999-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 # make-install - Install the firewall scripts (without make)
 #
-# 20020626 raf <raf@raf.org>
+# 20041215 raf <raf@raf.org>
 
 [ -z "$STOP_LEVELS" ] && STOP_LEVELS="0 1 6"     # halt, single user, reboot
 [ -z "$START_LEVELS" ] && START_LEVELS="2 3 4 5" # every other runlevel

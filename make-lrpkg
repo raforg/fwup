@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2002 raf <raf@raf.org>
+# Copyright (C) 1999-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 # make-lrp - Generate an LRP package (without make)
 #
-# 20020626 raf <raf@raf.org>
+# 20041215 raf <raf@raf.org>
 
 # Prepare an LRP style tree in which to install the firewall
 
@@ -86,7 +86,7 @@ echo >> "$help"
 
 # Create firewall.version
 
-echo "20020626-1" > "$version"
+echo "20041215-1" > "$version"
 echo >> "$version"
 
 # Create firewall.list

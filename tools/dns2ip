@@ -4,7 +4,7 @@ use strict;
 
 # firewall - http://fwup.org/
 #
-# Copyright (C) 2000-2002 raf <raf@raf.org>
+# Copyright (C) 2000-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ properly. You'll just have to use IP addresses directly when this is the case.
 
 =head1 AUTHOR
 
-20020626 raf <raf@raf.org>
+20041215 raf <raf@raf.org>
 
 =cut
 

@@ -1,7 +1,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2002 raf <raf@raf.org>
+# Copyright (C) 1999-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 
 # Makefile - fwup
 #
-# 20020626 raf <raf@raf.org>
+# 20041215 raf <raf@raf.org>
 
 help:
 	@echo "This Makefile supports the following targets"; \

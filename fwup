@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2002 raf <raf@raf.org>
+# Copyright (C) 1999-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20020626 raf <raf@raf.org>
+# 20041215 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -48,7 +48,7 @@
 
 # Set the path explicitly
 
-PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
+PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin; export PATH
 
 # Define a version of redhat's action function that copes with functions
 
@@ -199,7 +199,7 @@ grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
 
 [ -z "$policy" ] && policy=/etc/firewall.policy
 
-[ ! -r $policy ] && die "failed to find readable $policy"
+[ ! -r "$policy" ] && die "failed to find readable $policy"
 
 # Check for ipmasqadm and ip later, iff they are needed
 
@@ -238,9 +238,9 @@ multicast="224.0.0.0/4"
 ILLEGAL_NETWORKS="$loopback $private_a $private_b $private_c"
 
 # IANA Reserved addresses
-# http://www.iana.org/assignments/ipv4-address-space [2001 Dec 1]
+# http://www.iana.org/assignments/ipv4-address-space [2003-11-14]
 
-RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/5 82.0.0.0/7 84.0.0.0/6 88.0.0.0/5 96.0.0.0/3 197.0.0.0/8 221.0.0.0/8 222.0.0.0/8 223.0.0.0/8 240.0.0.0/4"
+RESERVED_NETWORKS="0.0.0.0/7 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/7 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/7 70.0.0.0/7 72.0.0.0/5 85.0.0.0/8 86.0.0.0/7 88.0.0.0/5 96.0.0.0/3 173.0.0.0/8 174.0.0.0/7 176.0.0.0/5 184.0.0.0/6 189.0.0.0/8 190.0.0.0/8 197.0.0.0/8 223.0.0.0/8 240.0.0.0/4"
 
 # I'm not absolutely certain that the following are IANA Reserved networks.
 # It looks like they are but they're not explicitly labelled "IANA - Reserved".
@@ -366,7 +366,7 @@ MASQ_UDP_TIMEOUT="0"
 
 # Source the policy file
 
-. $policy
+. "$policy"
 
 # Check that $TRUSTED_INTERFACES is defined (at least lo)
 
@@ -618,6 +618,13 @@ then
 	[ -z "$INTERNAL_NETWORKS" ] && die "\$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"10.0.0.0/8\")"
 	yes "$MASQUERADING" && die "\$STATIC_NAT and \$MASQUERADING are mutually exclusive"
 	yes "$FORWARDING" && die "\$STATIC_NAT and \$FORWARDING are mutually exclusive"
+fi
+
+# Check that MASQUERADED_NETWORKS is only defined when MASQUERADING is defined.
+
+if [ -n "$MASQUERADED_NETWORKS" ]
+then
+	not yes "$MASQUERADING" && die "\$MASQUERADING is required by \$MASQUERADED_NETWORKS"
 fi
 
 # Define REDIRECT_INTERFACES if not already done
@@ -3931,7 +3938,7 @@ init_masq()
 
 	# Masquerade traffic from internal networks to the outside world
 
-	for masqnet in $INTERNAL_NETWORKS
+	for masqnet in ${MASQUERADED_NETWORKS:-$INTERNAL_NETWORKS}
 	do
 		ipchains -A forward -s $masqnet -j MASQ
 	done

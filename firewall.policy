@@ -1,7 +1,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999-2002 raf <raf@raf.org>
+# Copyright (C) 1999-2004 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20020626 raf <raf@raf.org>
+# 20041215 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -143,6 +143,54 @@ UNTRUSTED_INTERFACES=""
 #
 
 ##############################################################################
+# Perimeter Network
+#
+# If there is a perimeter network, there will be two firewalls. The first
+# (on the router between the external network and the perimeter network)
+# should be a forwarding firewall. The second (on the router between the
+# perimeter network and the internal networks) should either be a forwarding
+# or a masquerading firewall. Consider using meta-firewall to manage the
+# two firewalls from the location of your choice.
+#
+
+##############################################################################
+# Demilitarized Zone (DMZ)
+#
+# If there is a DMZ, the interface to it must be listed in the
+# UNTRUSTED_INTERFACES variable and rules to allow specific services across
+# that interface must be defined as described below (see Service Policy).
+# 
+# It is assumed that traffic for the DMZ is not masqueraded. If traffic for
+# the private nmetworks is also not masqueraded, then the firewall can be
+# configured with FORWARDING="yes".
+#
+# If traffic for the private networks requires masquerading (consider
+# generic proxies instead), then the firewall must be configured with
+# MASQUERADING="yes" and the MASQUERADED_NETWORKS variable must contain the
+# private network addresses but not the DMZ network address. Otherwise,
+# leave the MASQUERADED_NETWORKS variable blank.
+#
+# Since traffic for the DMZ arrives at the external interface, that
+# interface will need rules pertaining to server hosts within the DMZ so
+# TARGET variables will need to be defined for the DMZ hosts (see Service
+# Policy).
+#
+# Also, the interface to the DMZ will need rules to specify the allowed DMZ
+# traffic. Note that the direction of services is the reverse of the normal
+# direction for external interfaces. To allow a DMZ host to receive a
+# request, the external interface requires an incoming service rule (for the
+# DMZ host's address) and the DMZ interface requires an outgoing service
+# rule.
+#
+# Also note that the concept of a DMZ used here is very different to
+# that used by some cable modem routers which seem to think that a DMZ
+# is a host on the local network that is completely unprotected from
+# the Internet. The DMZ is a public internal network that should be
+# protected from the Internet (as much as possible) and a network that
+# the rest of your network(s) must be protected from.
+#
+
+##############################################################################
 # Single Host (no forwarding, no address/port translation)
 #
 # This is for a single host that connects to an external network.
@@ -177,6 +225,13 @@ UNTRUSTED_INTERFACES=""
 # to or from specific hosts across the internal interface.
 
 # MASQUERADING="no"
+
+# Unless all internal networks are to be masqueraded, specify those networks
+# that will be masqueraded. Any other internal networks (such as a DMZ) will
+# be forwarded normally.
+
+# Blank means all internal networks will be masqueraded.
+# MASQUERADED_NETWORKS=""
 
 # Timeouts used for masquerading (zero means leave timeout as it is)
 # Timeout in seconds for masqueraded tcp addresses
