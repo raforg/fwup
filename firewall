@@ -28,7 +28,7 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/sysconfig/firewall.policy
 #
-# 20000309 raf <raf2@zip.com.au>
+# 20000321 raf <raf2@zip.com.au>
 
 # Source function library
 [ -e /etc/rc.d/init.d/functions ] || exit 1
@@ -93,7 +93,6 @@ case "$1" in
 		fi
 
 		/sbin/ipchains -L -v -n
-		/sbin/ipchains -M -L -v -n
 		;;
 
 	restart)

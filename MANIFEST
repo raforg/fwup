@@ -6,3 +6,4 @@
 ./firewall.policy
 ./README
 ./MANIFEST
+./dns2ip

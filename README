@@ -15,8 +15,8 @@ There can be as much or as little sharing of policy between untrusted
 interfaces as you like.
 
 There is primitive support for IP masquerading. Masqueraded hosts can engage
-in permitted outgoing services (except DHCP, PPTP and IPSEC) exactly like
-the current host and are bound by the same restrictions. Distinct policies
+in permitted outgoing services (except OSPF, DHCP, PPTP and IPSEC) exactly
+like the current host and are bound by the same restrictions. Distinct policies
 for internal hosts isn't implemented because there's no NAT support yet.
 
 The policy is specified in the firewall.policy file.
@@ -35,6 +35,12 @@ Here is the list of currently supported services:
     opop    - outgoing POP
     iimap   - incoming IMAP
     oimap   - outgoing IMAP
+    ispop   - incoming SSL-POP
+    ospop   - outgoing SSL-POP
+    isimap  - incoming SSL-IMAP
+    osimap  - outgoing SSL-IMAP
+    isldap  - incoming SSL-LDAP
+    osldap  - outgoing SSL-LDAP
     issh1   - incoming SSH1
     ossh1   - outgoing SSH1
     issh2   - incoming SSH2
@@ -55,6 +61,12 @@ Here is the list of currently supported services:
     onntp   - outgoing NNTP
     irsync  - incoming RSYNC
     orsync  - outgoing RSYNC
+    icvs    - incoming CVS
+    ocvs    - outgoing CVS
+    ignats  - incoming GNATS
+    ognats  - outgoing GNATS
+    imysql  - incoming MYSQL
+    omysql  - outgoing MYSQL
     ismb    - incoming SMB
     osmb    - outgoing SMB
     iirc    - incoming IRC
@@ -85,8 +97,11 @@ Here is the list of currently supported services:
     osnmpt  - outgoing SNMP TRAP
     ibgp    - incoming BGP
     obgp    - outgoing BGP
+    ospf    - OSPF
     irip    - incoming RIP
     orip    - outgoing RIP
+    ikerb   - incoming KERBEROS
+    okerb   - outgoing KERBEROS
     ipptp   - incoming PPTP
     opptp   - outgoing PPTP
     iipsec  - incoming IPSEC
@@ -104,8 +119,8 @@ manually). Everything else requires ipchains which is a Linux-2.2 feature.
 
 Install (as root):
 
-    tar xzf firewall-20000309.tar.gz
-    cd firewall-20000309
+    tar xzf firewall-20000321.tar.gz
+    cd firewall-20000321
     make install
 
 Edit the sample policy file to reflect your filtering policy and install it:
@@ -122,7 +137,8 @@ For more details:
     make help
 
 Note: Don't trust it. Test it. Many services haven't been tested yet.
-Please send any bug reports, criticism, comments, suggestions, patches ...
+Please send bug reports, criticism, comments, suggestions, patches, and
+pointers to more information.
 
 After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
 your untrusted interfaces (as root from the inside and the outside) to make
@@ -152,7 +168,7 @@ HISTORY
 ~~~~~~~
 19991231
 
-    - Initial version.
+    - Initial version
 
 20000309
 
@@ -178,11 +194,21 @@ HISTORY
     - Added support for multiple untrusted interfaces with differing policies
     - Added automatic identification of local networks
 
+20000321
+
+    - Added dynamic IP address hacking in IP MASQ (for non-routers only!)
+    - Added the ability to deny/reject selected ports without logging them
+    - Added Kerberos, CVS, GNATS, MySql, SSL-POP, SSL-IMAP, SSL-LDAP, OSPF
+    - Fixed bug: was masquerading traffic between multiple internal networks
+    - Added the dns2ip utility to translate domain names in policy files into ip addresses
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
 http://linux-firewall-tools.com by Robert L. Ziegler
 The ipchains mailing list. Particularly Yan Seiner and Mike A. Harris
+IP-Masquerade-HOWTO by David Ranch
+IP Command Reference by Alexey N. Kuznetsov
 
 BUGS
 ~~~~
@@ -192,19 +218,14 @@ BUGS
 
 - There is no NAT support yet.
 
-- Logging isn't configurable.
-
 TODO
 ~~~~
 More testing
 Network Address/Port Translation
-Services: kerberos (at least kpop)
-Policy preprocessor to translate names into addresses
-Make logging configurable
 Improve fwhelper
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 20000309
+Date: 20000321
 Author: raf <raf2@zip.com.au>
 

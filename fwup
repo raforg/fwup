@@ -29,7 +29,7 @@
 # Define policy in /etc/sysconfig/firewall.policy
 # Read it carefully
 #
-# 20000309 raf <raf2@zip.com.au>
+# 20000321 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Start by checking that we've got everything we need
@@ -89,6 +89,7 @@ fi
 
 # Check for other protocols that we might need
 
+grep '^ospf' /etc/protocols >/dev/null && OSPF_PROTOCOL="1"
 grep '^pptp' /etc/protocols >/dev/null && PPTP_PROTOCOL="1"
 grep '^esp' /etc/protocols >/dev/null && ESP_PROTOCOL="1"
 grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
@@ -161,6 +162,7 @@ else
 fi
 
 # Range of port numbers used for masquerading
+# These can be changed in /usr/src/linux/include/net/ip_masq.h
 
 [ -z "$masq_ports" ] && masq_ports="61000:65096"
 
@@ -354,8 +356,7 @@ then
 	exit 1
 fi
 
-# Log all denied/rejected packets
-# Note: This is stupid. Logging should really be configurable
+# Log all denied/rejected packets except those in the "NOLOG" variables
 
 case "$LOG" in
 	[Nn]o|[Ff]alse|[Oo]ff|0)
@@ -376,6 +377,7 @@ ipchains() {
 			echo ipchains $* >&2
 			;;
 	esac
+
 	/sbin/ipchains $*
 }
 
@@ -550,7 +552,7 @@ udp() {
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
 		udpm() {
-			chain1=$1; chain2=$2 srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6;
+			chain1=$1; chain2=$2 srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
 			udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
 			udp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
 		}
@@ -561,6 +563,28 @@ case "$MASQUERADE" in
 		}
 		;;
 esac
+
+# Deny/reject a udp packet
+#
+# noudp1 <chain> <srcaddr> <srcport> <dstaddr> <dstport> <target> <extra>
+#
+# On chain, jump to target for udp src to dst. extra is for the logging option, -l.
+
+noudp1() {
+	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	ipchains -A $chain -p udp -s $srcaddr $srcport -d $dstaddr $dstport -j $target $extra
+}
+
+# Deny/reject a tcp packet
+#
+# notcp1 <chain> <srcaddr> <srcport> <dstaddr> <dstport> <target> <extra>
+#
+# On chain, jump to target for udp src to dst. extra is for the logging option, -l.
+
+notcp1() {
+	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	ipchains -A $chain -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j $target $extra
+}
 
 # Accept icmp
 #
@@ -866,6 +890,102 @@ default_to_any IMAP_SERVERS $i
 for server in `combine IMAP_SERVERS $i`
 do
 	tcpm ooimap$i ioimap$i $self $normal_ports $server 143
+done
+
+##############################################################################
+# Incoming SSL-POP
+#
+
+chains ispop $i # incoming and outgoing rule chains for incoming SSL-POP
+
+# Permit SSL-POP connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SPOP_CLIENTS $i
+
+for client in `combine SPOP_CLIENTS $i`
+do
+	tcp iispop$i oispop$i $client 1024: $self 995
+done
+
+##############################################################################
+# Outgoing SSL-POP
+#
+
+chains ospop $i # outgoing and incoming rule chains for outgoing SSL-POP
+
+# Permit SSL-POP connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any SPOP_SERVERS $i
+
+for server in `combine SPOP_SERVERS $i`
+do
+	tcpm oospop$i iospop$i $self $normal_ports $server 995
+done
+
+##############################################################################
+# Incoming SSL-IMAP
+#
+
+chains isimap $i # incoming and outgoing rule chains for incoming SSL-IMAP
+
+# Permit SSL-IMAP connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SIMAP_CLIENTS $i
+
+for client in `combine SIMAP_CLIENTS $i`
+do
+	tcp iisimap$i oisimap$i $client 1024: $self 993
+done
+
+##############################################################################
+# Outgoing SSL-IMAP
+#
+
+chains osimap $i # outgoing and incoming rule chains for outgoing SSL-IMAP
+
+# Permit SSL-IMAP connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any SIMAP_SERVERS $i
+
+for server in `combine SIMAP_SERVERS $i`
+do
+	tcpm oosimap$i iosimap$i $self $normal_ports $server 993
+done
+
+##############################################################################
+# Incoming SSL-LDAP
+#
+
+chains isldap $i # incoming and outgoing rule chains for incoming SSL-LDAP
+
+# Permit SSL-LDAP connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SLDAP_CLIENTS $i
+
+for client in `combine SLDAP_CLIENTS $i`
+do
+	tcp iisldap$i oisldap$i $client 1024: $self 636
+done
+
+##############################################################################
+# Outgoing SSL-LDAP
+#
+
+chains osldap $i # outgoing and incoming rule chains for outgoing SSL-LDAP
+
+# Permit SSL-LDAP connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any SLDAP_SERVERS $i
+
+for server in `combine SLDAP_SERVERS $i`
+do
+	tcpm oosldap$i iosldap$i $self $normal_ports $server 636
 done
 
 ##############################################################################
@@ -1341,6 +1461,88 @@ chains orsync $i # outgoing and incoming rule chains for outgoing RSYNC
 for server in `combine RSYNC_SERVERS $i`
 do
 	tcpm oorsync$i iorsync$i $self $normal_ports $server 873
+done
+
+##############################################################################
+# Incoming CVS
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+chains icvs $i # incoming and outgoing rule chains for incoming CVS
+
+# Permit CVS connections from specific external hosts
+
+for client in `combine CVS_CLIENTS $i`
+do
+	tcp iicvs$i oicvs$i $client 1024: $self 2401
+done
+
+##############################################################################
+# Outgoing CVS
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+chains ocvs $i # outgoing and incoming rule chains for outgoing CVS
+
+# Permit CVS connections to specific external hosts
+
+for server in `combine CVS_SERVERS $i`
+do
+	tcpm oocvs$i iocvs$i $self $normal_ports $server 2401
+done
+
+##############################################################################
+# Incoming GNATS
+#
+
+chains ignats $i # incoming and outgoing rule chains for incoming GNATS
+
+# Permit GNATS connections from specific external hosts
+
+for client in `combine GNATS_CLIENTS $i`
+do
+	tcp iignats$i oignats$i $client 1024: $self 1529
+done
+
+##############################################################################
+# Outgoing GNATS
+#
+
+chains ognats $i # outgoing and incoming rule chains for outgoing GNATS
+
+# Permit GNATS connections to specific external hosts
+
+for server in `combine GNATS_SERVERS $i`
+do
+	tcpm oognats$i iognats$i $self $normal_ports $server 1529
+done
+
+##############################################################################
+# Incoming MYSQL
+#
+
+chains imysql $i # incoming and outgoing rule chains for incoming MYSQL
+
+# Permit MYSQL connections from specific external hosts
+
+for client in `combine MYSQL_CLIENTS $i`
+do
+	tcp iimysql$i oimysql$i $client 1024: $self 3306
+done
+
+##############################################################################
+# Outgoing MYSQL
+#
+
+chains omysql $i # outgoing and incoming rule chains for outgoing MYSQL
+
+# Permit MYSQL connections to specific external hosts
+
+for server in `combine MYSQL_SERVERS $i`
+do
+	tcpm oomysql$i iomysql$i $self $normal_ports $server 3306
 done
 
 ##############################################################################
@@ -1931,6 +2133,24 @@ do
 done
 
 ##############################################################################
+# OSPF
+#
+# Note: You must have ospf(89) in /etc/protocols.
+#
+
+if [ -n "$OSPF_PROTOCOL" ]
+then
+	chains ospf $i # incoming and outgoing rule chains for OSPF
+
+	# Permit OSPF traffic to/from specific external routers
+
+	for router in `combine OSPF_ROUTERS $i`
+	do
+		other ospf oospf$i iospf$i $self $router # protocol 89
+	done
+fi
+
+##############################################################################
 # Incoming RIP
 #
 # Note: You probably don't want to permit this across a firewall.
@@ -1969,9 +2189,45 @@ do
 done
 
 ##############################################################################
+# Incoming KERBEROS
+#
+
+chains ikerb $i # incoming and outgoing rule chains for incoming KERBEROS
+
+# Permit KERBEROS connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any KERBEROS_CLIENTS $i
+
+for client in `combine KERBEROS_CLIENTS $i`
+do
+	tcp iikerb$i oikerb$i $client 1024: $self 88      # kerberos
+	tcp iikerb$i oikerb$i $client 1024: $self 543:544 # klogin/kshell
+	tcp iikerb$i oikerb$i $client 1024: $self 749     # kadmin
+done
+
+##############################################################################
+# Outgoing KERBEROS
+#
+
+chains okerb $i # incoming and outgoing rule chains for outgoing KERBEROS
+
+# Permit KERBEROS connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any KERBEROS_SERVERS $i
+
+for server in `combine KERBEROS_SERVERS $i`
+do
+	tcpm ookerb$i iokerb$i $self $normal_ports $server 88      # kerberos
+	tcpm ookerb$i iokerb$i $self $normal_ports $server 543:544 # klogin/kshell
+	tcpm ookerb$i iokerb$i $self $normal_ports $server 749     # kadmin
+done
+
+##############################################################################
 # Incoming PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Note: You must have pptp(47) in /etc/protocols.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -1986,7 +2242,7 @@ then
 
 	for client in `combine PPTP_CLIENTS $i`
 	do
-		tcp iipptp$i oipptp$i $client 1024: $self pptpctrl # port ???
+		tcp iipptp$i oipptp$i $client 1024: $self 1723
 		other pptp iipptp$i oipptp$i $client $self # protocol 47
 	done
 fi
@@ -1994,7 +2250,7 @@ fi
 ##############################################################################
 # Outgoing PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Note: You must have pptp(47) in /etc/protocols.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -2009,7 +2265,7 @@ then
 
 	for server in `combine PPTP_SERVERS $i`
 	do
-		tcp oopptp$i iopptp$i $self 1024: $server pptpctrl # port ???
+		tcp oopptp$i iopptp$i $self $normal_ports $server 1723
 		other pptp oopptp$i iopptp$i $self $server # protocol 47
 	done
 fi
@@ -2032,7 +2288,7 @@ then
 
 	for client in `combine IPSEC_CLIENTS $i`
 	do
-		udp iiipsec$i oiipsec$i $client ipsec $self ipsec # port ???
+		udp iiipsec$i oiipsec$i $client 500 $self 500
 		other esp iiipsec$i oiipsec$i $client $self # protocol 50
 		other ah iiipsec$i oiipsec$i $client $self # protocol 51
 	done
@@ -2056,7 +2312,7 @@ then
 
 	for server in `combine IPSEC_SERVERS $i`
 	do
-		udp ooipsec$i ioipsec$i $self ipsec $client ipsec # port ???
+		udp ooipsec$i ioipsec$i $self 500 $client 500
 		other esp ooipsec$i ioipsec$i $self $client # protocol 50
 		other ah ooipsec$i ioipsec$i $self $client # protocol 51
 	done
@@ -2224,6 +2480,45 @@ then
 fi
 
 ##############################################################################
+# No Log
+#
+# After you've set up your firewall, you may find regular, harmless packets
+# being blocked and logged (e.g. netbios broadcasts). If you don't want them
+# to be logged, you can add port numbers to these variables and they will
+# be blocked but not logged.
+#
+
+chains nolog $i
+
+# Deny incoming udp packets without logging them
+
+for port in `combine INOLOG_UDP_PORTS $i`
+do
+	noudp1 inolog$i $any : $self $port DENY
+done
+
+# Reject outgoing udp packets without logging them
+
+for port in `combine ONOLOG_UDP_PORTS $i`
+do
+	noudp1 onolog$i $self : $any $port REJECT
+done
+
+# Deny incoming tcp packets without logging them
+
+for port in `combine INOLOG_TCP_PORTS $i`
+do
+	notcp1 inolog$i $any : $self $port DENY
+done
+
+# Reject outgoing tcp packets without logging them
+
+for port in `combine ONOLOG_TCP_PORTS $i`
+do
+	notcp1 onolog$i $self : $any $port REJECT
+done
+
+##############################################################################
 # End of service chain loop for each untrusted interface's ip addresses.
 #
 
@@ -2341,7 +2636,7 @@ do
 	# Add the input/output rule chains to deny dangerous services and to
 	# permit required services over $untrusted
 
-	for service in danger$i `number $i \`combine SERVICES $i\`` icmp$i frag
+	for service in danger$i `number $i \`combine SERVICES $i\`` icmp$i frag nolog$i
 	do
 		ipchains -A i$untrusted -j i$service
 		ipchains -A o$untrusted -j o$service
@@ -2371,15 +2666,33 @@ do
 	ipchains -A output -i $untrusted -j o$untrusted
 done
 
-# Masquerade packets between the local network and everywhere else
+# Masquerade packets between the internal networks and everywhere else
+# but not amongst the internal networks themselves.
 
 case "$MASQUERADE" in
 	[Yy]es|[Tt]rue|[Oo]n|1)
+
+		# Set masquerading timeouts
 
 		if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
 		then
 			ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
 		fi
+
+		# Accept (unmasqueraded) traffic amongst multiple internal networks
+
+		for src in $INTERNAL_NETWORKS
+		do
+			for dst in $INTERNAL_NETWORKS
+			do
+				if [ "$src" != "$dst" ]
+				then
+					ipchains -A forward -s $src -d $dst -j ACCEPT
+				fi
+			done
+		done
+
+		# Masquerade traffic from internal networks to the outside world
 
 		for masqnet in $INTERNAL_NETWORKS
 		do
@@ -2564,6 +2877,23 @@ case "$IPV4_LOG_MARTIANS" in
 esac
 
 ##############################################################################
+# Start Dynamic IP Address Hacking in IP MASQ
+#
+
+case "$IPV4_DYNADDR" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		echo -n "Starting Dynamic IP Address Hacking in IP MASQ"
+		if [ -w $ipv4/ip_dynaddr ]
+		then
+			echo 1 > $ipv4/ip_dynaddr
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
 # Start IP Packet Forwarding
 #
 
@@ -2576,7 +2906,7 @@ case "$MASQUERADE" in
 				echo -n "Starting IP Packet Forwarding"
 				if [ -w $ipv4/ip_forward ]
 				then
-					[ `cat $ipv4/ip_forward` != 1 ] && echo 1 > $ipv4/ip_forward
+					echo 1 > $ipv4/ip_forward
 					action "" true
 				else
 					action "" false

@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000309 raf <raf2@zip.com.au>
+# 20000321 raf <raf2@zip.com.au>
 
 ##############################################################################
 # Local information
@@ -99,7 +99,7 @@ UNTRUSTED_INTERFACES=""
 # MASQ_UDP_TIMEOUT="0"
 
 # Log all denied/rejected packets
-# Note: This is stupid. Logging should really be configurable
+# Note: See below for blocking packets without logging them.
 # LOG="yes"
 
 ##############################################################################
@@ -118,6 +118,12 @@ UNTRUSTED_INTERFACES=""
 # IPV4_ICMP_BROADCAST_ECHO_PROTECT="yes"
 # IPV4_BOGUS_ERROR_RESPONSE_PROTECT="yes"
 # IPV4_LOG_MARTIANS="yes"
+
+# Turn this on if you receive dynamic IP addresses from SLIP, PPP or DHCP
+# but only if this is not a multi-homed host or router. It tells the kernel
+# to fix the source address of your packets if some software got it wrong by
+# using a previous address, say. This sort of behaviour can break a router.
+# IPV4_DYNADDR="no"
 
 ##############################################################################
 # Service level policy
@@ -296,9 +302,69 @@ UNTRUSTED_INTERFACES=""
 # Blank means no hosts.
 # EVIL_IMAP_SERVERS=""
 
-# List of POP servers to which this network may connect.
+# List of IMAP servers to which this network may connect.
 # Blank means all hosts.
 # IMAP_SERVERS=""
+
+##############################################################################
+# Incoming SSL-POP
+#
+
+# SERVICES="$SERVICES ispop"
+
+# List of hosts which may connect to this host's SSL-POP server.
+# Blank means all hosts.
+# SPOP_CLIENTS=""
+
+##############################################################################
+# Outgoing SSL_POP
+#
+
+# SERVICES="$SERVICES ospop"
+
+# List of SSL-POP servers to which this network may connect.
+# Blank means all hosts.
+# SPOP_SERVERS=""
+
+##############################################################################
+# Incoming SSL-IMAP
+#
+
+# SERVICES="$SERVICES isimap"
+
+# List of hosts which may connect to this host's SSL-IMAP server.
+# Blank means all hosts.
+# SIMAP_CLIENTS=""
+
+##############################################################################
+# Outgoing SSL-IMAP
+#
+
+# SERVICES="$SERVICES osimap"
+
+# List of SSL-IMAP servers to which this network may connect.
+# Blank means all hosts.
+# SIMAP_SERVERS=""
+
+##############################################################################
+# Incoming SSL-LDAP
+#
+
+# SERVICES="$SERVICES isldap"
+
+# List of hosts which may connect to this host's SSL-LDAP server.
+# Blank means all hosts.
+# SLDAP_CLIENTS=""
+
+##############################################################################
+# Outgoing SSL-LDAP
+#
+
+# SERVICES="$SERVICES osldap"
+
+# List of SSL-LDAP servers to which this network may connect.
+# Blank means all hosts.
+# SLDAP_SERVERS=""
 
 ##############################################################################
 # Incoming SSH1
@@ -356,7 +422,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Incoming Normal/Passive FTP
 #
-# Note: This is an extremely bad idea if you this host is running a
+# Note: This is an extremely bad idea if this host is running a
 # non-anonymous FTP server since real user names, passwords and private
 # files will be transmitted over the net in plaintext. Use rsync over ssh
 # instead. This should only be used on a bastion host running an anonymous
@@ -571,6 +637,70 @@ UNTRUSTED_INTERFACES=""
 # List of RSYNC servers to which this network may connect.
 # Blank means no hosts.
 # RSYNC_SERVERS=""
+
+##############################################################################
+# Incoming CVS
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+# SERVICES="$SERVICES icvs"
+
+# List of hosts which may connect to this host's CVS server.
+# Blank means no hosts.
+# CVS_CLIENTS=""
+
+##############################################################################
+# Outgoing CVS
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+# SERVICES="$SERVICES ocvs"
+
+# List of CVS servers to which this network may connect.
+# Blank means no hosts.
+# CVS_SERVERS=""
+
+##############################################################################
+# Incoming GNATS
+#
+
+# SERVICES="$SERVICES ignats"
+
+# List of hosts which may connect to this host's GNATS server.
+# Blank means no hosts.
+# GNATS_CLIENTS=""
+
+##############################################################################
+# Outgoing GNATS
+#
+
+# SERVICES="$SERVICES ognats"
+
+# List of GNATS servers to which this network may connect.
+# Blank means no hosts.
+# GNATS_SERVERS=""
+
+##############################################################################
+# Incoming MYSQL
+#
+
+# SERVICES="$SERVICES ignats"
+
+# List of hosts which may connect to this host's MYSQL server.
+# Blank means no hosts.
+# MYSQL_CLIENTS=""
+
+##############################################################################
+# Outgoing MYSQL
+#
+
+# SERVICES="$SERVICES ognats"
+
+# List of MYSQL servers to which this network may connect.
+# Blank means no hosts.
+# MYSQL_SERVERS=""
 
 ##############################################################################
 # Incoming SMB
@@ -888,6 +1018,7 @@ UNTRUSTED_INTERFACES=""
 # Incoming SNMP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted SNMP management stations.
 #
 
 # SERVICES="$SERVICES isnmp"
@@ -900,6 +1031,7 @@ UNTRUSTED_INTERFACES=""
 # Outgoing SNMP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted SNMP network devices.
 #
 
 # SERVICES="$SERVICES osnmp"
@@ -912,6 +1044,7 @@ UNTRUSTED_INTERFACES=""
 # Incoming SNMP TRAP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted SNMP management stations.
 #
 
 # SERVICES="$SERVICES isnmpt"
@@ -924,6 +1057,7 @@ UNTRUSTED_INTERFACES=""
 # Outgoing SNMP TRAP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted SNMP network devices.
 #
 
 # SERVICES="$SERVICES osnmpt"
@@ -936,25 +1070,39 @@ UNTRUSTED_INTERFACES=""
 # Incoming BGP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted BGP peers.
 #
 
 # SERVICES="$SERVICES ibgp"
 
-# List of hosts which may connect to this host's BGP server.
-# Blank means no hosts.
+# List of routers which may connect to this host's BGP server.
+# Blank means no routers.
 # BGP_CLIENTS=""
 
 ##############################################################################
 # Outgoing BGP
 #
 # Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted BGP peers.
 #
 
 # SERVICES="$SERVICES obgp"
 
-# List of BGP servers to which this network may connect.
-# Blank means no hosts.
+# List of BGP routers to which this router may connect.
+# Blank means no routers.
 # BGP_SERVERS=""
+
+##############################################################################
+# OSPF
+#
+# Note: You must have ospf(89) in /etc/protocols.
+#
+
+# SERVICES="$SERVICES ospf"
+
+# List of routers with which this host's OSPF server communicates.
+# Blank means no routers.
+# OSPF_ROUTERS=""
 
 ##############################################################################
 # Incoming RIP
@@ -981,9 +1129,29 @@ UNTRUSTED_INTERFACES=""
 # RIP_SERVERS=""
 
 ##############################################################################
+# Incoming KERBEROS
+#
+
+# SERVICES="$SERVICES ikerb"
+
+# List of hosts which may connect to this host's KERBEROS server.
+# Blank means all hosts.
+# KERBEROS_CLIENTS=""
+
+##############################################################################
+# Outgoing KERBEROS
+#
+
+# SERVICES="$SERVICES okerb"
+
+# List of KERBEROS servers to which this network may connect.
+# Blank means all hosts.
+# KERBEROS_SERVERS=""
+
+##############################################################################
 # Incoming PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Note: You must have pptp(47) in /etc/protocols.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -996,7 +1164,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Outgoing PPTP
 #
-# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Note: You must have pptp(47) in /etc/protocols.
 # Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
 #
 
@@ -1009,8 +1177,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Incoming IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
-# /etc/services.
+# Note: You must have esp(50) and ah(51) in /etc/protocols.
 #
 
 # SERVICES="$SERVICES iipsec"
@@ -1022,8 +1189,7 @@ UNTRUSTED_INTERFACES=""
 ##############################################################################
 # Outgoing IPSEC
 #
-# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
-# /etc/services.
+# Note: You must have esp(50) and ah(51) in /etc/protocols.
 #
 
 # SERVICES="$SERVICES oipsec"
@@ -1109,5 +1275,23 @@ UNTRUSTED_INTERFACES=""
 #
 # Note: This isn't configurable yet. Munge the [io]frag chains as needed.
 #
+
+##############################################################################
+# No Log
+#
+# After you've set up your firewall, you may find regular, harmless packets
+# being blocked and logged (e.g. netbios broadcasts). If you don't want them
+# to be logged, you can add port numbers to these variables and they will
+# be blocked but not logged.
+#
+
+# Incoming and outgoing udp and tcp destination ports to block without
+# logging. Blank means no ports and blocked without logging. i.e. all
+# blocked packets are logged.
+
+# INOLOG_UDP_PORTS=""
+# ONOLOG_UDP_PORTS=""
+# INOLOG_TCP_PORTS=""
+# ONOLOG_TCP_PORTS=""
 
 # vim:set filetype=sh:

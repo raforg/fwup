@@ -1,0 +1,130 @@
+#!/usr/bin/perl -w
+use strict;
+
+#
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+#
+# Copyright (C) 2000 raf <raf2@zip.com.au>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+=head1 NAME
+
+I<dns2ip> - a filter that translates domain names into IP addresses
+
+=head1 SYNOPSIS
+
+    dns2ip < firewall.policy.dns > firewall.policy
+
+=head1 DESCRIPTION
+
+Reads from standard input looking for domain names containing at least two
+``.'' characters. These are translated into IP addresses by performing DNS
+lookups. The resulting text is printed to standard output.
+
+=head1 BUGS
+
+This can take a long time to execute if there are things in the file that
+look like domain names but aren't (about 1 second per false positive).
+
+All domain names are translated into IP addresses, even those in comments.
+This probably isn't desirable.
+
+This can completely fail to help you if there are many DNS PTR records that
+refer to the same domain name but only one DNS A record for that domain name.
+This utility only finds addresses contained in A records (possibly traversing a
+DNS CNAME record to get there). There is no way to find all addresses
+associated with a given domain name when people don't set up their domains
+properly. You'll just have to use IP addresses directly when this is the case.
+
+=head1 AUTHOR
+
+20000321 raf <raf2@zip.com.au>
+
+=cut
+
+use Net::DNS;
+
+my $resolver = new Net::DNS::Resolver;
+$resolver->defnames(0);
+$resolver->retry(1);
+
+main:
+{
+	while (<>)
+	{
+		my $before = '';
+		my $after = $_;
+
+		my $dns;
+		while (($dns) = $after =~ /([a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\.[.a-zA-Z0-9-]+)/)
+		{
+			my $prematch = $`;
+			my $postmatch = $';
+
+			unless ($dns =~ /[a-zA-Z-]/)
+			{
+				$before .= $prematch . $dns;
+				$after = $postmatch;
+				next;
+			}
+
+			my @addr = lookup($dns);
+			if ($#addr != -1)
+			{
+				my $addrlist = join(' ', @addr);
+				$before .= $prematch . $addrlist;
+				$after = $postmatch;
+			}
+			else
+			{
+				$before .= $prematch . $dns;
+				$after = $postmatch;
+			}
+		}
+
+		print $before, $after;
+	}
+
+	exit(0);
+}
+
+sub lookup
+{
+	my ($name) = @_;
+	my @addr = ();
+
+	my $query = $resolver->search($name, 'ANY');
+	if ($query)
+	{
+		for my $rr ($query->answer)
+		{
+			if ($rr->type eq 'A')
+			{
+				push @addr, $rr->address;
+			}
+			elsif ($rr->type eq 'CNAME')
+			{
+				push @addr, lookup($rr->cname);
+			}
+		}
+	}
+
+	return @addr;
+}
+
+# vi:set ts=4 sw=4:
