@@ -560,13 +560,10 @@ done
 # Support for ipchains -Q (very fast ipchains)
 #
 
-cmdfile="/tmp/ipchains.q"
-
 quick_start()
 {
-	rm -f $cmdfile
-	umask 077
-	touch $cmdfile
+	cmdfile="`mktemp -q /tmp/$0.XXXXXX`"
+	[ $? -ne 0 -o -z "$cmdfile" ] && IPCHAINS_QUICK="0"
 }
 
 quick()

@@ -383,6 +383,10 @@ HISTORY
     - Stopped dns2ip from translating in shell comments (jshin@pantheon.yale.edu)
     - Added TIME, DAYTIME services (jshin@pantheon.yale.edu)
 
+20010214
+
+    - Fixed security bug: bad tempfile creation for ipchains-Q (dynamo@ime.net)
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
