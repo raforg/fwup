@@ -1,0 +1,377 @@
+#!/bin/sh
+#
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+#
+# Copyright (C) 1999 raf <raf2@zip.com.au>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# fwup - Brings up a packet filtering firewall
+#
+# Run this before any network interfaces are up
+# (i.e. before /etc/rc.d/rc?.d/S??network start).
+#
+# 19991229 raf <raf2@zip.com.au>
+
+# Set the path explicitly
+PATH=/sbin:/bin
+
+# Source function library
+[ -f /etc/rc.d/init.d/functions ] || exit 1
+. /etc/rc.d/init.d/functions
+
+# Source network configuration
+[ -f /etc/sysconfig/network ] || exit 1
+. /etc/sysconfig/network
+
+# Check that networking is required
+[ "$NETWORKING" = "no" ] && exit 0
+
+# Check that ipchains is available
+[ -x /sbin/ipchains ] || exit 1
+
+# Check that ifconfig is available
+[ -x /sbin/ifconfig ] || exit 1
+
+# Source IP packet filtering policy
+policy=/etc/sysconfig/firewall.policy
+[ -f $policy ] && . $policy || exit 1
+
+# Only handles a single untrusted interface to be filtered
+untrusted="$FILTERED_INTERFACE"
+
+echo -n "Starting IP Firewall..."
+
+# Identify the local network (Assumes Class C)
+[ -z "$LOCALNET" ] && LOCALNET="`cat /etc/networks | grep localnet | awk '{ printf "%s/24\n", $1 }'`"
+
+# List of dns servers
+[ -z "$DNS_SERVERS" ] && DNS_SERVERS="`grep nameserver /etc/resolv.conf | awk '{ printf "%s/32\n", $2 }'`"
+
+# Range of X Window server ports
+[ -z "$XWINPORTS" ] && XWINPORTS="6000:6005"
+
+# Matches every ip address
+ANY="0.0.0.0/0"
+
+# Allowable http server port numbers (this is stupid)
+[ -z "$HTTP" ] && HTTP="80 81 800 8000 8080 8088"
+
+# Matches the $untrusted interface address if $untrusted is up
+[ -z "$SELF" ] && SELF="`/sbin/ifconfig | perl -n -e '$f=1 if /^'$untrusted'/; if ($f && /inet addr:(\S+)\s/) { print $1, "\n"; last; }'`"
+# Matches every ip address if $untrusted is down ???
+[ -z "$SELF" ] && SELF=$ANY
+
+# Set policies for the built-in chains
+
+ipchains -P input DENY
+ipchains -P output REJECT
+ipchains -P forward DENY
+
+# Remove all existing rules/chains
+
+ipchains -F
+ipchains -X
+
+# Accept all packets on unfiltered interfaces
+
+for iface in $UNFILTERED_INTERFACES
+do
+	ipchains -A input  -i $iface -j ACCEPT
+	ipchains -A output -i $iface -j ACCEPT
+done
+
+# Create incoming and outgoing chains for the untrusted network interface
+
+ipchains -N i$untrusted
+ipchains -N o$untrusted
+
+# Direct packets through the untrusted interface's direction-based chains
+
+ipchains -A input  -i $untrusted -j i$untrusted
+ipchains -A output -i $untrusted -j o$untrusted
+
+# Masquerade packets between the local network and everywhere else
+
+case "$MASQUERADE" in
+	yes|on|true)
+		ipchains -A forward -s $LOCALNET -j MASQ
+		;;
+esac
+
+# Log all packets that reach the end of their chain
+
+if [ "x$LOG" = "x-l" ]
+then
+	ipchains -A input   -l
+	ipchains -A output  -l
+	ipchains -A forward -l
+fi
+
+# Create input/output chains for icmp packets and fragments
+
+ipchains -N iicmp # incoming icmp packets
+ipchains -N oicmp # outgoing icmp packets
+ipchains -N ifrag # incoming fragments
+ipchains -N ofrag # outgoing fragments
+
+# Create input/output chains for each permitted service
+# XXX Expand this into a huge library of rules required to permit a service
+# XXX The firewall.policy file need only state which services are permitted
+
+ipchains -N oodns  # outgoing dns requests, outgoing packets
+ipchains -N iodns  # outgoing dns requests, incoming packets
+ipchains -N ooaftp # outgoing anonymous passive ftp, outgoing packets
+ipchains -N ioaftp # outgoing anonymous passive ftp, incoming packets
+ipchains -N oossh  # outgoing ssh, outgoing packets
+ipchains -N iossh  # outgoing ssh, incoming packets
+ipchains -N oissh  # incoming ssh, outgoing packets
+ipchains -N iissh  # incoming ssh, incoming packets
+ipchains -N oopop3 # outgoing pop3, outgoing packets
+ipchains -N iopop3 # outgoing pop3, incoming packets
+ipchains -N oohttp # outgoing http, outgoing packets
+ipchains -N iohttp # outgoing http, incoming packets
+ipchains -N oontp  # outgoing ntp, outgoing packets
+ipchains -N iontp  # outgoing ntp, incoming packets
+ipchains -N oosmtp # outgoing smtp, outgoing packets
+ipchains -N iosmtp # outgoing smtp, incoming packets
+ipchains -N oonntp # outgoing nntp, outgoing packets
+ipchains -N ionntp # outgoing nntp, incoming packets
+ipchains -N oiauth # incoming auth, outgoing packets
+ipchains -N iiauth # incoming auth, incoming packets
+
+# Create rules that allow all icmp packets and all fragments ???
+
+ipchains -A iicmp -p icmp -j ACCEPT
+ipchains -A oicmp -p icmp -j ACCEPT
+ipchains -A ifrag -f      -j ACCEPT
+ipchains -A ofrag -f      -j ACCEPT
+
+# Create rules that allow the permitted services
+
+# Outgoing dns
+#
+# We're not running a dns server so all we need to allow is the local network's
+# queries to the primary and secondary dns servers and their responses.
+
+for dns in $DNS_SERVERS
+do
+	# Outgoing dns query via udp (client to server)
+	ipchains -A oodns -p udp -s $SELF 1024: -d $dns domain -j ACCEPT
+	# Answer to outgoing dns query via udp (server to client)
+	ipchains -A iodns -p udp -s $dns domain -d $SELF 1024: -j ACCEPT
+	# Outgoing dns query via tcp (client to server)
+	ipchains -A oodns -p tcp -s $SELF 1024: -d $dns domain -j ACCEPT
+	# Answer to outgoing dns query via tcp (server to client)
+	ipchains -A iodns -p tcp -s $dns domain -d $SELF 1024: ! -y -j ACCEPT
+done
+
+# Outgoing, anonymous passive ftp
+#
+# We only allow outgoing anonymous passive ftp because we have no anonymous
+# ftp site (being on the end of a modem, there's no point), non-anonymous
+# ftp in or out results in real passwords being sent over the network in
+# cleartext, and passive ftp results in fewer ports being opened up to
+# connections and this is a tiny site where I can guarantee the availability of
+# passive ftp clients and i'm assuming that all ftp sites support passive ftp
+# these days.
+
+for uftp in $USERFTP_SERVERS
+do
+	# Reject outgoing user ftp request
+	ipchains -A ooaftp -p tcp -s $SELF 1024: -d $uftp ftp -j REJECT $LOG
+	# Deny response to outgoing user ftp request
+	ipchains -A ioaftp -p tcp -s $uftp ftp -d $SELF 1024: ! -y -j DENY $LOG
+	# Reject data channel creation for outgoing passive user ftp request
+	ipchains -A ooaftp -p tcp -s $SELF 1024: -d $uftp 1024: -j REJECT $LOG
+	# Deny data channel responses for outgoing passive user ftp request
+	ipchains -A ioaftp -p tcp -s $uftp 1024: -d $SELF 1024: ! -y -j DENY $LOG
+done
+
+# Outgoing anonymous ftp request
+ipchains -A ooaftp -p tcp -s $SELF 1024: -d $ANY ftp -j ACCEPT
+# Response to outgoing anonymous ftp request
+ipchains -A ioaftp -p tcp -s $ANY ftp -d $SELF 1024: ! -y -j ACCEPT
+# Data channel creation for outgoing passive anonymous ftp request
+ipchains -A ooaftp -p tcp -s $SELF 1024: -d $ANY 1024: -j ACCEPT
+# Data channel responses for outgoing passive anonymous ftp request
+ipchains -A ioaftp -p tcp -s $ANY 1024: -d $SELF 1024: ! -y -j ACCEPT
+
+# Outgoing and incoming ssh
+#
+# We only allow ssh to/from predefined hosts (allows ssh1, ssh2 and sftp).
+# Note: I'm concerned about these rules. They seem necessary to permit ssh but
+# they seem too lax.
+
+for ssh in $SSH_SERVERS
+do
+	# Outgoing ssh connection
+	ipchains -A oossh -p tcp -s $SELF -d $ssh ssh -j ACCEPT
+	# Responses to outgoing ssh connection
+	ipchains -A iossh -p tcp -s $ssh ssh -d $SELF -j ACCEPT # ! -y
+	# Incoming ssh connection
+	ipchains -A iissh -p tcp -s $ssh -d $SELF ssh -j ACCEPT
+	# Responses to incoming ssh connection
+	ipchains -A oissh -p tcp -s $SELF ssh -d $ssh -j ACCEPT # ! -y
+done
+
+# Outgoing pop3
+#
+# Only allow pop3 connections from the local network to mail.geocities.com. Do
+# not allow pop3 connections to the isp since that would result in real
+# passwords being sent over the network in cleartext!
+
+for upop3 in $USERPOP3_SERVERS
+do
+	# Reject outgoing pop3 connections that require sensitive passwords
+	ipchains -A oopop3 -p tcp -s $SELF 1024: -d $upop3 pop-3 -j REJECT $LOG
+	# Deny responses from pop3 connections that require sensitive passwords
+	ipchains -A iopop3 -p tcp -s $upop3 pop-3 -d $SELF 1024: ! -y -j DENY $LOG
+done
+
+for pop3 in $POP3_SERVERS
+do
+	# Outgoing pop3 connection to mail.geocities.com
+	ipchains -A oopop3 -p tcp -s $SELF 1024: -d $pop3 pop-3 -j ACCEPT
+	# Responses from mail.geocities.com
+	ipchains -A iopop3 -p tcp -s $pop3 pop-3 -d $SELF 1024: ! -y -j ACCEPT
+done
+
+# Outgoing http
+#
+# We don't run an accessible web server here but we want to connect
+# to external web servers. Note: we assume (wrongly) that all web servers
+# can be found at one of the following ports: 80, 81, 800, 8000, 8080 or 8080.
+
+for http in $HTTP
+do
+	# Outgoing http request
+	ipchains -A oohttp -p tcp -s $SELF 1024: -d $ANY $http -j ACCEPT
+	# Response to outgoing http request
+	ipchains -A iohttp -p tcp -s $ANY $http -d $SELF 1024: ! -y -j ACCEPT
+done
+
+# Outgoing ntp
+#
+# We don't run an ntp server but we do synchronise with external ntp servers
+
+for ntp in $NTP_SERVERS
+do
+	# Outgoing ntp query
+	ipchains -A oontp -p udp -s $SELF ntp -d $ntp ntp -j ACCEPT
+	# Response to outgoing ntp query
+	ipchains -A iontp -p udp -s $ntp ntp -d $SELF ntp -j ACCEPT
+done
+
+# Outgoing smtp
+#
+# We don't run an smtp server so we only need outgoing connections
+# to my isp's smtp server.
+
+for smtp in $SMTP_SERVERS
+do
+	# Outgoing smtp connection to my isp's smtp server
+	ipchains -A oosmtp -p tcp -s $SELF 1024: -d $smtp smtp -j ACCEPT
+	# Responses from the smtp server
+	ipchains -A iosmtp -p tcp -s $smtp smtp -d $SELF 1024: ! -y -j ACCEPT
+done
+
+# Outgoing nntp
+#
+# We don't run an nntp server so we only need outgoing connections
+# to external news servers.
+
+for nntp in $NNTP_SERVERS
+do
+	# Outgoing nntp connection to an external nntp server
+	ipchains -A oonntp -p tcp -s $SELF 1024: -d $nntp nntp -j ACCEPT
+	# Responses from the nntp server
+	ipchains -A ionntp -p tcp -s $nntp nntp -d $SELF 1024: ! -y -j ACCEPT
+done
+
+# Incoming auth
+#
+# The smtp servers that we connect to will want to connect to our auth port.
+
+for auth in $IAUTH_SERVERS
+do
+	# Incoming auth connection from an allowed auth client
+	ipchains -A iiauth -p tcp -s $auth 1024: -d $SELF auth -j ACCEPT
+	# Responses from the local auth server to the auth client
+	ipchains -A oiauth -p tcp -s $SELF auth -d $auth 1024: -j ACCEPT
+done
+
+# So do some anonymous ftp servers. To allow anyone to connect to the
+# auth port, leave $IAUTH_SERVERS blank but put iauth in $SERVERS.
+
+if [ -z "$IAUTH_SERVERS" ]
+then
+	# Incoming auth connection from anywhere
+	ipchains -A iiauth -p tcp -s $ANY 1024: -d $SELF auth -j ACCEPT
+	# Responses from the local auth server to anywhere
+	ipchains -A oiauth -p tcp -s $SELF auth -d $ANY 1024: -j ACCEPT
+fi
+
+# Redundant partial IP Spoof Protection
+ipchains -A i$untrusted -s $LOCALNET -j DENY $LOG
+
+# Prevent connections to X servers. Hope it doesn't cause too much grief.
+ipchains -A i$untrusted -p tcp -s $ANY -d $SELF $XWINPORTS -y -j DENY $LOG
+
+# Add the input/output chains for permitted services over $untrusted
+
+for service in icmp frag $SERVICES
+do
+	ipchains -A i$untrusted -j i$service
+	ipchains -A o$untrusted -j o$service
+done
+
+action " up" /bin/true
+
+# Start IP Spoof Protection
+
+ipv4=/proc/sys/net/ipv4
+
+if [ -e $ipv4/conf/all/rp_filter ]
+then
+	if [ "$SPOOFPROTECT_IPV4" != "no" -a "$SPOOFPROTECT_IPV4" != "false" ]
+	then
+		action "Starting IP Spoof Protection" /bin/true
+		for filter in $ipv4/conf/*/rp_filter
+		do
+			[ `cat $filter` != 1 ] && echo 1 > $filter
+		done
+	fi
+fi
+
+# Start IP Packet Forwarding
+
+if [ -e $ipv4/ip_forward ]
+then
+	if [ "$FORWARD_IPV4" != "no" -a "$FORWARD_IPV4" != "false" ]
+	then
+		if [ `cat $ipv4/ip_forward` != 1 ]
+		then
+			action "Starting IP Packet Forwarding" /bin/true
+			echo 1 > $ipv4/ip_forward
+		fi
+	fi
+fi
+
+exit 0
+
+# vi:set ts=4 sw=4:

@@ -1,0 +1,80 @@
+README
+~~~~~~
+This contains scripts that manage an ipchains (packet filtering) firewall.
+Currently, it is only suitable for (my) home use as it only permits the
+following services:
+
+  Outgoing DNS requests to specific hosts (local client to external server)
+  Outgoing FTP connections to any host (local client to external server)
+  Denial of (e.g. non-anonymous) FTP connections to specific hosts (local client to external server)
+  Outgoing SSH connections to specific hosts (local client to external server)
+  Incoming SSH connections from specific hosts (external client to local server)
+  Outgoing POP3 connections to particular hosts (local client to external server)
+  Denial of POP3 connections to particular hosts (local client to external server)
+  Outgoing HTTP connections (local client to external server)
+  Outgoing NTP requests to specific hosts (local client to external server)
+  Outgoing SMTP connections to specific hosts (local client to external server)
+  Outgoing NNTP connections to specific hosts (local client to external server)
+  Incoming AUTH connections from specific hosts or all hosts (external client to local server)
+  All packet fragments and all ICMP packets are permitted.
+
+I will be adding rules describing the communications required for many more
+services. The services which are to be permitted and the hosts for which
+they are to be permitted is specified in the firewall.policy file. When the
+library of service rules is more "complete", it will be possible to easily
+implement your own security policy with these scripts just by modifying the
+policy file. At the moment, this is really just a backup.
+
+INSTALL
+~~~~~~~
+This was written for a Redhat 6.0 Linux 2.2.x system. The Makefile assumes a
+Redhat 6.0 /etc layout and everything else requires ipchains which is a
+Linux-2.2.x feature.
+
+Install:
+
+    tar xzf fw.tar.gz
+    cd fw
+    make install
+
+For more details:
+
+    make help
+
+Edit the policy file to reflect your security policy:
+
+    vi /etc/sysconfig/firewall.policy
+
+Start the firewall:
+
+    /etc/rc.d/init.d/firewall start
+
+COPYING
+~~~~~~~
+firewall - Linux-2.2 ipchains packet filtering firewall management package
+Copyright (C) 1999 raf <raf2@zip.com.au>
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+    or visit http://www.gnu.org/copyleft/gpl.html
+
+TODO
+~~~~
+Heaps! Many more services. Serious doco in policy file. Improve fwhelper.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+URL: http://www.zip.com.au/~raf2/lib/software/firewall
+Date: 19991229
+Author: raf <raf2@zip.com.au>
+

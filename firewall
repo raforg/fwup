@@ -1,0 +1,111 @@
+#!/bin/sh
+#
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+#
+# Copyright (C) 1999 raf <raf2@zip.com.au>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+#
+# Startup script for an ipchains packet filtering firewall
+#
+# name: /etc/rc.d/init.d/firewall
+# description: firewall protects the local network from internet based attacks
+# lockfile: /var/lock/subsys/firewall
+# programs: /usr/local/sbin/{fwup,fwdown}
+# config: /etc/sysconfig/firewall.policy
+#
+# 19991229 raf <raf2@zip.com.au>
+
+# Source function library.
+[ -e /etc/rc.d/init.d/functions ] || exit 1
+. /etc/rc.d/init.d/functions
+
+# Source networking configuration.
+[ -e /etc/sysconfig/network ] || exit 1
+. /etc/sysconfig/network
+
+# Check that networking is required
+[ "$NETWORKING" = "no" ] && exit 0
+
+fwup=/usr/local/sbin/fwup
+fwdown=/usr/local/sbin/fwdown
+lock=/var/lock/subsys/firewall
+
+# Check that ipchains is available
+[ -x /sbin/ipchains ] || exit 1
+
+# Check that fwup is available
+[ -x $fwup ] || exit 1
+
+# Check that $fwdown is available
+[ -x $fwdown ] || exit 1
+
+# See how we were called.
+case "$1" in
+	start|up)
+		if [ -e $lock ]
+		then
+			echo "The Firewall is already up" >&2
+			exit 1
+		fi
+
+		$fwup && touch $lock
+		;;
+
+	stop|down)
+		if [ ! -e $lock ]
+		then
+			echo "The Firewall is already down" >&2
+			exit 1
+		fi
+
+		$fwdown && rm -f $lock
+		;;
+
+	status)
+		if [ -e $lock ]
+		then
+			echo "The Firewall is up"
+		else
+			echo "The Firewall is down"
+		fi
+		;;
+
+	probe)
+		/sbin/ipchains -L -v
+		/sbin/ipchains -M -L -v
+		;;
+
+	restart)
+		$0 stop
+		$0 start
+		;;
+
+	reload)
+		rm -f $lock
+		$0 start
+		;;
+
+	*)
+		echo "Usage: $0 {start|stop|up|down|restart|reload|status|probe}"
+		exit 1
+esac
+
+exit 0
+
+# vi:set ts=4 sw=4:

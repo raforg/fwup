@@ -1,0 +1,88 @@
+#!/bin/sh
+#
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+#
+# Copyright (C) 1999 raf <raf2@zip.com.au>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+# fwdown - Brings down the packet filtering firewall
+#
+# Run this after all network interfaces are down
+# (i.e. after /etc/rc.d/rc?.d/K??network stop)
+#
+# 19991229 raf <raf2@zip.com.au>
+
+# Set the path explicitly
+PATH=/sbin:/bin
+
+# Source function library
+[ -f /etc/rc.d/init.d/functions ] || exit 1
+. /etc/rc.d/init.d/functions
+
+# Source network configuration
+[ -f /etc/sysconfig/network ] || exit 1
+. /etc/sysconfig/network
+
+# Check that networking is required
+[ "$NETWORKING" = "no" ] && exit 0
+
+# Check that ipchains is available
+[ -x /sbin/ipchains ] || exit 1
+
+# Stop IP Packet Forwarding
+
+ipv4=/proc/sys/net/ipv4
+
+if [ -e $ipv4/ip_forward ]
+then
+	if [ `cat $ipv4/ip_forward` != 0 ]
+	then
+		action "Stopping IP Packet Forwarding" /bin/true
+		echo 0 > $ipv4/ip_forward
+	fi
+fi
+
+# Stop IP Spoof Protection
+
+if [ -e $ipv4/conf/all/rp_filter ]
+then
+	action "Stopping IP Spoof Protection" /bin/true
+	for filter in $ipv4/conf/*/rp_filter
+	do
+		[ `cat $filter` != 0 ] && echo 0 > $filter
+	done
+fi
+
+echo -n "Stopping IP Firewall..."
+
+# Remove any existing rules/chains
+
+ipchains -F
+ipchains -X
+
+# Set policies for the built-in chains
+
+ipchains -P input ACCEPT
+ipchains -P output ACCEPT
+ipchains -P forward ACCEPT
+
+action " down" /bin/true
+
+exit 0
+
+# vi:set ts=4 sw=4:

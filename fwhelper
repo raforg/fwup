@@ -1,0 +1,624 @@
+#!/usr/bin/perl -w
+use strict;
+
+#
+# firewall: http://www.zip.com.au/~raf2/lib/software/firewall
+#
+# Copyright (C) 1999 raf <raf2@zip.com.au>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# or visit http://www.gnu.org/copyleft/gpl.html
+#
+
+=head1 NAME
+
+I<fwhelper> - helps the testing and development of an I<ipchains> firewall
+
+=head1 SYNOPSIS
+
+    fwhelper [-h] [-d] [-n] [-s] [-i ifname] [-o ipaddr] [<] tcpdump.output
+    where
+        -h        Prints this help
+        -d        Prints debugging info (lots if -s is used as well)
+        -n        Only prints `ipchain -C' commands, doesn't execute them
+        -s        Simulates rules and prints matching rules/policies
+        -i ifname Specifies the network interface name to analyze
+        -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address
+
+=head1 DESCRIPTION
+
+I<fwhelper> is a tool to help the development and testing of I<ipchains> packet
+filtering rules. It examines a sequence of packets (produced by I<tcpdump>),
+checking each of them against the packet filtering rules (with C<ipchains -C>).
+It can also simulate the packet filter and output the final rule, if any, that
+matched each packet.
+
+While the firewall is stopped, run C<tcpdump -l -i ppp0>, capturing its output
+to a file, and then run network programs that you wish to allow or disallow.
+Then stop I<tcpdump> and restart the firewall. Run I<fwhelper> with the
+I<tcpdump> output as its input. See that all the packets are accepted, denied
+or rejected as required. If the C<-s> option is supplied, you will also see
+which rule, if any, caused each packet to be accepted, denied or rejected.
+
+=head1 OPTIONS
+
+=over 4
+
+=item C<-h>
+
+Output the usage message then exit.
+
+=item C<-d>
+
+Output debugging information. Without the C<-s> option, this just causes each
+line of input to be output before its corresponding C<ipchains -C> command.
+With the C<-s> option, this will also print out all of the packet filtering
+chains and rules and a trace of the filtering simulations.
+
+=item C<-n>
+
+Don't execute the C<ipchains -C> commands.
+
+=item C<-s>
+
+Simulate the packet filter for each packet and output the final rule, if any,
+that matched each packet and the path of chains traversed on the way to that
+rule.
+
+=item C<-i ifname>
+
+Specify the network interface name to be analyzed (C<ppp0> by default). This
+name is passed to the C<ipchains -C> commands as the C<-i> option argument.
+
+=item C<-o ipaddr>
+
+Specifies a numeric IP address to be converted into the current IP address when
+parsing the output of I<tcpdump>. This can be useful when all of the following
+are true: you receive dynamic IP addresses each time you connect to the net; if
+the packet filter is activated after connecting to the net, its rules refer
+specifically to the current IP address; you have some old I<tcpdump> output
+files created when your IP address was different; you are currently connected
+to the net and want to use I<fwhelper>.
+
+With the C<-o> option, you can specify which IP address in the I<tcpdump>
+output files was the current IP address at the time of their creation. Every
+occurrence of this IP address will be converted into the host's current IP
+address for the purposes of creating source and destination address patterns
+for the C<ipchains -C> commands.
+
+=back
+
+=head1 BUGS
+
+ICMP type/code parsing is incomplete and probably too dependent on I<tcpdump>
+version.
+
+Doesn't simulate ICMP properly (very bad - needs fixing).
+
+Doesn't parse C<ipchains -v -m -L> output if mark and/or outsize is present.
+
+Can't distinguish between the first and subsequent fragments in I<tcpdump>
+output so it doesn't bother handling fragments (very bad - needs fixing).
+
+Doesn't consider IP masquerading or C<input>->C<forward>->C<output> scenarios.
+But then, neither does C<ipchains -C>.
+
+Simulation of rules with the C<RETURN> target hasn't been tested and may not
+work.
+
+If the firewall was started while connected to the net and you are currently
+disconnected or connected with a new IP address, then the current host's IP
+address in the packets (possibly after translation using `-o') may not match
+the current host's IP address in the firewall's rules. This would mean that the
+C<ipchains -C> commands and the simulation could be incorrect. If you get a lot
+of surprises in I<fwhelper>'s output, this is probably why. The workarounds are
+to either start the firewall and use I<fwhelper> during the same net
+connection, or start the firewall while disconnected and leave it up
+(recommended since I<fwhelper> will then work across multiple connections and
+while disconnected).
+
+=head1 AUTHOR
+
+19991229 raf <raf2@zip.com.au>
+
+=cut
+
+use Getopt::Std;
+$| = 1;
+
+my %opt;              # Command line options
+my $if = 'ppp0';      # Network interface name for ipchains -C
+my $oldaddr;          # Current host's IP address in old tcpdump output files
+my $oldaddr_pattern;  # Search pattern for $oldaddr
+my $self;             # Current host's current IP address (if $if is up)
+my $self_pattern;     # Search pattern for $self
+my %chain;            # Map of the current IP chain names to lists of rules
+my %policy;           # Map of built-in chain names to their policies
+my %tcp_port;         # Map of tcp port names to tcp port numbers
+my %udp_port;         # Map of udp port names to udp port numbers
+my @chain_stack = (); # Stack of IP chain names maintained during simulation
+my @rule_stack = ();  # Stack of rules that matched current packet
+
+my %term =
+(
+	'ACCEPT' => 1, 'DENY' => 1, 'REJECT' => 1,
+	'MASQ' => 1, 'REDIRECT' => 1, 'RETURN' => 1
+);
+
+# Map tcpdump output to ipchains input
+
+my %icmp_type =
+(
+	qr/echo reply/               => 'echo-reply',
+	qr/unreachable/              => 'destination-unreachable',
+	qr/source quench/            => 'source-quench',
+	qr/redirect.* \S+ to .+ \S+/ => 'redirect',
+	qr/echo request/             => 'echo-request',
+	qr/router advertisement/     => 'router-advertisement',
+	qr/router solicitation/      => 'router-solicitation',
+	qr/time exceeded/            => 'time-exceeded',
+	qr/parameter problem/        => 'parameter-problem',
+	qr/time stamp request/       => 'timestamp-request',
+	qr/time stamp reply/         => 'timestamp-reply',
+	qr/address mask request/     => 'address-mask-request',
+	qr/address mask reply/       => 'address-mask-reply'
+);
+
+# Map tcpdump output to ipchains input
+
+my %icmp_code =
+(
+	qr/net \S+ unreachable/                     => 'network-unreachable',
+	qr/host \S+ unreachable/                    => 'host-unreachable',
+	qr/protocol .+ unreachable/                 => 'protocol-unreachable',
+	qr/port .+ unreachable/                     => 'port-unreachable',
+	qr/need to frag/                            => 'fragmentation-needed',
+	qr/source route failed/                     => 'source-route-failed',
+	qr/network unknown/                         => 'network-unknown', # XXX
+	qr/host unknown/                            => 'host-unknown', # XXX
+	qr/net \S+ unreachable - admin prohibited/  => 'network-prohibited',
+	qr/host \S+ unreachable - admin prohibited/ => 'host-prohibited',
+	qr/net \S+ unreachable - tos prohibited/    => 'TOS-network-unreachable',
+	qr/host \S+ unreachable - tos prohibited/   => 'TOS-host-unreachable',
+	qr/- admin prohibited filter/               => 'communication-prohibited',
+	qr/- host precedence violation/             => 'host-precedence-violation',
+	qr/- precedence cutoff/                     => 'precedence-cutoff',
+	qr/redirect \S+ to net \S+/                 => 'network-redirect',
+	qr/redirect \S+ to host \S+/                => 'host-redirect',
+	qr/redirect-tos \S+ to net \S+/             => 'TOS-network-redirect',
+	qr/redirect-tos \S+ to host \S+/            => 'TOS-host-redirect', # XXX
+	qr/in-transit/                              => 'ttl-zero-during-transit',
+	qr/ip reassembly/                           => 'ttl-zero-during-reassembly',
+	qr/parameter problem/                       => 'ip-header-bad', # XXX
+	qr/required option missing/                 => 'required-option-missing' # XXX
+);
+
+main:
+{
+	handle_options();
+	get_self();
+	get_ports();
+	build_chains();
+	fwhelper();
+	exit(0);
+}
+
+sub handle_options
+{
+	help() unless getopts('hdnsi:o:', \%opt);
+	help() if exists $opt{h};
+	$if = $opt{i} if exists $opt{i};
+	$oldaddr = $opt{o} if exists $opt{o};
+	$oldaddr_pattern = join('\.', split(/\./, $oldaddr)) if defined $oldaddr;
+}
+
+sub help()
+{
+	print "usage: $0 [-h] [-d] [-n] [-s] [-i ifname] [-o ipaddr] [<] tcpdump.output\n",
+		"where\n",
+		"    -h        Prints this help\n",
+		"    -d        Prints debugging info (lots if -s is used as well)\n",
+		"    -n        Only prints `ipchain -C' commands, doesn't execute them\n",
+		"    -s        Simulates rules and prints matching rules/policies\n",
+		"    -i ifname Specifies the network interface name to analyze\n",
+		"    -o ipaddr Convert `ipaddr' in tcpdump.output to current ip address\n";
+	exit(1);
+}
+
+sub mkstr
+{
+	my ($str, $width) = @_;
+
+	return $str . (' ' x ($width - length $str)) if defined $str;
+	return ' ' x $width;
+}
+
+sub safe
+{
+	my ($str) = @_;
+
+	return (defined $str) ? $str : 'undef';
+}
+
+sub safe_join
+{
+	my ($sep, $ref) = @_;
+
+	my $str = '';
+	my $first = 1;
+	for (my $i = 0; $i <= $#$ref; ++$i)
+	{
+		if (defined $$ref[$i])
+		{
+			$str .= $sep unless $first;
+			$str .= $$ref[$i];
+			$first = 0;
+		}
+	}
+
+	return $str;
+}
+
+sub get_self
+{
+	my $found = 0;
+
+	for (split(/\n/, `/sbin/ifconfig`))
+	{
+		$found = 1, next if /^$if/;
+
+		if ($found && /inet addr:(\S+)\s/)
+		{
+			$self = $1;
+			$self_pattern = join('\.', split(/\./, $self));
+			return;
+		}
+	}
+
+	$self = '0.0.0.0';
+	$self_pattern = '0\.0\.0\.0';
+}
+
+sub get_ports
+{
+	open(SERVICES, '/etc/services') or die "Failed to open /etc/services\n";
+
+	while (<SERVICES>)
+	{
+		s/#.*$//;
+		next if /^\s*$/;
+		my ($name, $port, $prot) = $_ =~ /^(\S+)\s+(\d+)\/(\S+)/;
+		die "/etc/services parse error: $_\n" unless defined $name && defined $port and defined $prot;
+
+		if ($prot eq 'tcp')
+		{
+			$tcp_port{$name} = $port;
+		}
+		elsif ($prot eq 'udp')
+		{
+			$udp_port{$name} = $port;
+		}
+	}
+
+	close(SERVICES);
+}
+
+sub build_chains
+{
+	if (exists $opt{s})
+	{
+		my $chain;
+
+		for (split /\n/, `/sbin/ipchains -L -n -v`)
+		{
+			$policy{$chain = $1} = $2, next if /^Chain (\S+) \(policy ([^:]+):/;
+			$chain = $1, next if /^Chain (\S+) \(\d+ references\):$/;
+			next if /^ pkts\s+bytes\s+target\s+prot\s+opt\s+tosa\s+tosx\s+ifname\s+mark\s+outsize\s+source\s+destination\s+ports$/;
+			my ($target, $prot, $opt, $ifname, $src, $dst, $ports) =
+				$_ =~ /^\s*\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/; # XXX mark and outsize parsing
+			die "ipchains parse error: $_\n" unless defined $target && defined $prot && defined $opt && defined $ifname && defined $src && defined $dst && defined $ports;
+			next if $target eq '-';
+			my $srcport = undef;
+			my $dstport = undef;
+			my $frag = undef;
+			my $syn = undef;
+
+			if ($ports =~ /^(\S+)\s+->\s+(\S+)$/)
+			{
+				$srcport = $1;
+				$dstport = $2;
+			}
+			elsif ($ports !~ /n\/a/)
+			{
+				die "ipchains parse error (ports): $_\n";
+			}
+
+			if ($opt =~ /!f/)
+			{
+				$frag = 0;
+			}
+			elsif ($opt =~ /f/)
+			{
+				$frag = 1;
+			}
+
+			if ($opt =~ /!y/)
+			{
+				$syn = 0;
+			}
+			elsif ($opt =~ /y/)
+			{
+				$syn = 1;
+			}
+
+			$ifname = undef if $ifname eq '*';
+			$prot = undef if $prot eq 'all';
+
+			my @rule = ($ifname, $prot, $src, $srcport, $dst, $dstport, $frag, $syn, $target);
+			$chain{$chain} = [] unless exists $chain{$chain};
+			push(@{$chain{$chain}}, \@rule);
+		}
+
+		if (exists $opt{d})
+		{
+			for (keys %policy)
+			{
+				print "Chain $_ policy $policy{$_}\n";
+			}
+
+			for (sort keys %chain)
+			{
+				print "\nChain $_:\n";
+				print "if    prot src              srcport      dst              dstport      f s target\n";
+				print "----- ---- ---------------- ------------ ---------------- ------------ - - --------\n";
+
+				for my $rule (@{$chain{$_}})
+				{
+					my $ifname = mkstr($$rule[0], 6);
+					my $prot = mkstr($$rule[1], 5);
+					my $src = mkstr($$rule[2], 17);
+					my $srcport = mkstr($$rule[3], 13);
+					my $dst = mkstr($$rule[4], 17);
+					my $dstport = mkstr($$rule[5], 13);
+					my $frag = mkstr($$rule[6], 2);
+					my $syn = mkstr($$rule[7], 2);
+					my $target = mkstr($$rule[8], 0);
+
+					print $ifname, $prot, $src, $srcport, $dst, $dstport, $frag, $syn, $target, "\n";
+				}
+			}
+
+			print "\n";
+		}
+	}
+}
+
+sub simulate
+{
+	my ($chain, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn) = @_;
+
+	my $target = sim(0, $chain, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn);
+
+	if (defined $target)
+	{
+		print join('->', reverse @chain_stack), ': ', safe_join(' ', $rule_stack[0]), "\n";
+		print $target, "\n";
+	}
+	else
+	{
+		print "$policy{$chain} ($chain policy)\n";
+	}
+
+	@chain_stack = ();
+	@rule_stack = ();
+}
+
+sub sim
+{
+	my ($indent, $chain, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn) = @_;
+
+	return $chain if exists $term{$chain};
+
+	my $srcp = (defined $srcport) ? " $srcport" : '';
+	my $dstp = (defined $dstport) ? " $dstport" : '';
+	print ' ' x $indent, "sim(chain $chain, ifname $ifname, proto $proto, src $src$srcp, dst $dst$dstp, frag ", ($frag ? 1 : 0), ", syn ", ($syn ? 1 : 0), ")\n" if exists $opt{d};
+
+	for my $rule (@{$chain{$chain}})
+	{
+		my $target = match_rule($indent + 1, $rule, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn);
+
+		if (defined $target)
+		{
+			return undef if $target eq 'RETURN'; # XXX untested
+
+			$target = sim($indent + 1, $target, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn);
+
+			if (defined $target)
+			{
+				push(@chain_stack, $chain);
+				push(@rule_stack, $rule);
+				return $target;
+			}
+		}
+	}
+
+	return undef;
+}
+
+sub match_rule
+{
+	my ($indent, $rule, $ifname, $proto, $src, $srcport, $dst, $dstport, $frag, $syn) = @_;
+
+	my $rule_ifname = $$rule[0];
+	my $rule_proto = $$rule[1];
+	my $rule_src = $$rule[2];
+	my $rule_srcport = $$rule[3];
+	my $rule_dst = $$rule[4];
+	my $rule_dstport = $$rule[5];
+	my $rule_frag = $$rule[6];
+	my $rule_syn = $$rule[7];
+	my $rule_target = $$rule[8];
+
+	return undef if defined $rule_ifname && $ifname ne $rule_ifname;
+	return undef if defined $rule_proto && $proto ne $rule_proto;
+	return undef if defined $rule_frag && $frag != $rule_frag;
+	return undef if defined $rule_syn && $syn != $rule_syn;
+	return undef unless match_addr($rule_src, $src);
+	return undef unless match_port($proto, $rule_srcport, $srcport);
+	return undef unless match_addr($rule_dst, $dst);
+	return undef unless match_port($proto, $rule_dstport, $dstport);
+	print ' ' x $indent, 'match: ', safe_join(' ', $rule), "\n" if exists $opt{d};
+	return $rule_target;
+}
+
+sub match_addr
+{
+	my ($rule_addr, $addr) = @_;
+
+	my $pos = ($rule_addr !~ /^!/);
+	$rule_addr .= '/32' unless $rule_addr =~ /\//;
+	my ($ip, $bits) = $rule_addr =~ /^!?([^\/]+)\/([^\/]+)$/;
+	return $pos if $bits == 0;
+	return $pos if $bits == 32 && $ip eq $addr;
+
+	my ($b1, $b2, $b3, $b4) = $ip =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)/;
+	my $rule_ip = ($b4 << 24) | ($b3 << 16) | ($b2 << 8) | $b1;
+	($b1, $b2, $b3, $b4) = $addr =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)/;
+	my $pkt_ip = ($b4 << 24) | ($b3 << 16) | ($b2 << 8) | $b1;
+
+	my $mask = 0;
+	for (my $i = $bits; $i; --$i)
+	{
+		$mask <<= 1;
+		$mask |= 1;
+	}
+
+	my $equal = ($pkt_ip & $mask) == ($rule_ip & $mask);
+	return $pos ? $equal : !$equal;
+}
+
+sub match_port
+{
+	my ($proto, $rule_port, $port) = @_;
+	return 1 unless defined $rule_port;
+	return 1 if $rule_port eq '*';
+
+	if ($port !~ /^\d+$/)
+	{
+		if ($proto eq 'tcp')
+		{
+			$port = $tcp_port{$port};
+		}
+		elsif ($proto eq 'udp')
+		{
+			$port = $udp_port{$port};
+		}
+		else
+		{
+			die "Unknown protocol: $proto\n";
+		}
+	}
+
+	return 1 if $rule_port =~ /^(\d+)$/ && $port == $1;
+	return 1 if $rule_port =~ /^!(\d+)$/ && $port != $1;
+	return 1 if $rule_port =~ /^(\d+):(\d+)$/ && $port >= $1 && $port <= $2;
+	return 1 if $rule_port =~ /^!(\d+):(\d+)$/ && ($port < $1 || $port > $2);
+	return 0;
+}
+
+sub fwhelper
+{
+	my $line = 0;
+	while (<>)
+	{
+		s/$oldaddr_pattern/$self/g if defined $oldaddr_pattern;
+		my $text = $_;
+		print $text if exists $opt{d};
+		++$line;
+		my ($src, $dst, $info) = $text =~ /^\S+ (.*) > ([^:]*): (.*)$/;
+
+		die "Parse error (line $line): $text\n" unless defined $src && defined $dst && defined $info;
+
+		my $proto;
+		my $srcport;
+		my $dstport;
+		my $chain;
+		my $frag = '';
+		my $syn = '';
+		$chain = 'output' if $src =~ /$self_pattern/;
+		$chain = 'input' if $dst =~ /$self_pattern/;
+		die "Parse error: unknown chain (line $line): $text\n" unless $chain;
+		my $cmd;
+
+		# XXX need to parse/test/simulate fragments and icmp packets properly
+
+		if ($info =~ /^([SFPR\.]+) /)
+		{
+			$proto = 'tcp';
+			my $tcp_info = $1;
+			$syn = '-y' if $tcp_info =~ /S/;
+			($src, $srcport) = $src =~ /^(.*)\.([^.]+)$/;
+			die "Parse error: invalid src addr (line $line): $text\n" unless defined $src && defined $srcport;
+			($dst, $dstport) = $dst =~ /^(.*)\.([^.]+)$/;
+			die "Parse error: invalid dst addr (line $line): $text\n" unless defined $dst && defined $dstport;
+			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $srcport -d $dst $dstport $frag $syn";
+		}
+		elsif ($info =~ /^icmp: (.*)$/)
+		{
+			$proto = 'icmp';
+			my $icmp_info = $1;
+			my $name;
+
+			for (keys %icmp_type)
+			{
+				if ($icmp_info =~ /$_/)
+				{
+					$name = $icmp_type{$_};
+
+					for (keys %icmp_code)
+					{
+						if ($icmp_info =~ /$_/)
+						{
+							$name = $icmp_code{$_};
+							last;
+						}
+					}
+
+					last;
+				}
+			}
+
+			die "Parse error: invalid icmp (line $line): $text\n" unless defined $name;
+
+			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $name -d $dst";
+		}
+		else
+		{
+			$proto = 'udp';
+			($src, $srcport) = $src =~ /^(.*)\.([^].]+)$/;
+			die "Parse error: invalid src addr (line $line): $text\n" unless defined $src && defined $srcport;
+			($dst, $dstport) = $dst =~ /^(.*)\.([^].]+)$/;
+			die "Parse error: invalid dst addr (line $line): $text\n" unless defined $dst && defined $dstport;
+			$cmd = "ipchains -C $chain -i $if -p $proto -s $src $srcport -d $dst $dstport";
+		}
+
+		print $cmd, "\n";
+		simulate($chain, $if, $proto, $src, $srcport, $dst, $dstport, $frag ne '', $syn ne '') if exists $opt{s};
+		system($cmd) unless exists $opt{n};
+		print "\n";
+	}
+}
+
+# vi:set ts=4 sw=4:
