@@ -2,7 +2,7 @@
 #
 # firewall: http://www.zip.com.au/~raf2/lib/software/firewall
 #
-# Copyright (C) 1999 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,43 +20,59 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# fwup - Brings up a packet filtering firewall
+# fwup - Brings up an ipchains packet filtering firewall
 #
 # Run this before any network interfaces are up
-# (i.e. before /etc/rc.d/rc?.d/S??network start).
-# Define policy in /etc/sysconfig/firewall.policy
+# (i.e. before /etc/rc.d/rc?.d/S??network start)
+# and after receiving a dynamic IP address.
 #
-# 19991231 raf <raf2@zip.com.au>
+# Define policy in /etc/sysconfig/firewall.policy
+# Read it carefully
+#
+# 20000309 raf <raf2@zip.com.au>
 
 ##############################################################################
-# Prepare by loading some variables, functions and the firewall policy
+# Start by checking that we've got everything we need
 #
 
 # Set the path explicitly
-PATH=/sbin:/bin
+
+PATH=/sbin:/bin:/usr/bin
 
 # Source the function library
-if [ ! -f /etc/rc.d/init.d/functions ]
-then
-	echo "$0: failed to find /etc/rc.d/init.f/functions" >&2
-	exit 1
-fi
 
-. /etc/rc.d/init.d/functions
+if [ -r /etc/rc.d/init.d/functions ]
+then
+	. /etc/rc.d/init.d/functions
+else
+	#echo "$0: failed to find /etc/rc.d/init.f/functions" >&2
+	#exit 1
+
+	# Define a crappy version of redhat's action function
+
+	action() {
+		msg=$1; shift
+		echo -n "$msg "
+		$* && echo "[ OK ]" || echo "[ FAILED ]"
+	}
+fi
 
 # Source the network configuration
-if [ ! -f /etc/sysconfig/network ]
+
+if [ -r /etc/sysconfig/network ]
 then
-	echo "$0: failed to find /etc/sysconfig/network" >&2
-	exit 1
+	. /etc/sysconfig/network
+#else
+	#echo "$0: failed to find /etc/sysconfig/network" >&2
+	#exit 1
 fi
 
-. /etc/sysconfig/network
-
 # Check that networking is required
+
 [ "$NETWORKING" = "no" ] && exit 0
 
 # Check that ipchains is available
+
 if [ ! -x /sbin/ipchains ]
 then
 	echo "$0: failed to find /sbin/ipchains" >&2
@@ -64,129 +80,652 @@ then
 fi
 
 # Check that ifconfig is available
+
 if [ ! -x /sbin/ifconfig ]
 then
 	echo "$0: failed to find /sbin/ifconfig" >&2
 	exit 1
 fi
 
-# Source the IP packet filtering policy
-policy=/etc/sysconfig/firewall.policy
-if [ ! -f $policy ]
+# Check for other protocols that we might need
+
+grep '^pptp' /etc/protocols >/dev/null && PPTP_PROTOCOL="1"
+grep '^esp' /etc/protocols >/dev/null && ESP_PROTOCOL="1"
+grep '^ah' /etc/protocols >/dev/null && AH_PROTOCOL="1"
+
+# Check that the policy file is available
+
+[ -z "$policy" ] && policy=/etc/sysconfig/firewall.policy
+
+if [ ! -r $policy ]
 then
 	echo "$0: failed to find $policy" >&2
 	exit 1
 fi
 
-. $policy
-
 ##############################################################################
-# Check/initialize some policy variables
+# Define some network addresses
 #
-
-# Check that $LOCALNET is defined
-[ -z "$LOCALNET" ] && LOCALNET="`cat /etc/networks | grep localnet | awk '{ printf "%s/24\n", $1 }'`"
-if [ -z "$LOCALNET" ]
-then
-	echo "$0: \$LOCALNET must be defined in $policy (e.g. LOCALNET=\"192.168.1.0/24\")" >&2
-	exit 1
-fi
-
-# Only handles a single untrusted interface to be filtered (XXX fix that)
-if [ -z "$UNTRUSTED_INTERFACE" ]
-then
-	echo "$0: \$UNTRUSTED_INTERFACE must be defined in $policy (e.g. ppp0)" >&2
-	exit 1
-fi
-
-untrusted="$UNTRUSTED_INTERFACE"
-
-# List of DNS servers
-[ -z "$DNS_SERVERS" ] && DNS_SERVERS="`grep nameserver /etc/resolv.conf | awk '{ printf "%s/32\n", $2 }'`"
-
-# Range of X Window server ports to avoid like the plague
-[ -z "$XWINPORTS" ] && XWINPORTS="6000:6005"
-
-# Allowable HTTP server port numbers (this is stupid)
-[ -z "$EXTERNAL_HTTP_PORTS" ] && EXTERNAL_HTTP_PORTS="80 81 800 8000 8080 8088"
-[ -z "$INTERNAL_HTTP_PORTS" ] && INTERNAL_HTTP_PORTS="80"
-
-# Allowable GOPHER server port numbers (this is stupid)
-[ -z "$EXTERNAL_GOPHER_PORTS" ] && EXTERNAL_GOPHER_PORTS="70"
-[ -z "$INTERNAL_GOPHER_PORTS" ] && INTERNAL_GOPHER_PORTS="70"
-
-# Allowable WAIS server port numbers (this is stupid)
-[ -z "$EXTERNAL_WAIS_PORTS" ] && EXTERNAL_WAIS_PORTS="210"
-[ -z "$INTERNAL_WAIS_PORTS" ] && INTERNAL_WAIS_PORTS="210"
 
 # Matches every ip address
-any="0.0.0.0/0"
 
-# Matches the $untrusted interface address if $untrusted is up (e.g. permanent)
-[ -z "$self" ] && self="`ifconfig | perl -n -e '$f=1 if /^'$untrusted'/; if ($f && /inet addr:(\S+)\s/) { print $1, "\n"; last; }'`"
-# Matches every ip address if $untrusted is down
-[ -z "$self" ] && self="$any"
+any="0/0"
 
-# Log all denied/rejected packets?
-[ -z "$LOG" ] && LOG="yes"
-[ "$LOG" = "no" -o "$LOG" = "false" -o "$LOG" = "off" ] && LOG="" || LOG="-l"
+# Broadcast source addess
+
+broadcast_src="0.0.0.0/32"
+
+# Broadcast destination address
+
+broadcast_dst="255.255.255.255/32"
+
+# The loopback address (never to appear on the internet)
+
+loopback="127.0.0.0/8"
+
+# Class A, B and C private addresses (never to appear on the internet)
+
+private_a="10.0.0.0/8"
+private_b="172.16.0.0/12"
+private_c="192.168.0.0/16"
+
+# Class D multicast address
+
+multicast="224.0.0.0/4"
+
+# Class E reserved address
+
+reserved="240.0.0.0/5"
+
+# Illegal addresses
+
+ILLEGAL_NETWORKS="$loopback $private_a $private_b $private_c"
+
+# Reserved addresses
+
+RESERVED_NETWORKS="1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 49.0.0.0/8 50.0.0.0/8 58.0.0.0/7 60.0.0.0/8 65.0.0.0/8 66.0.0.0/8 67.0.0.0/8 68.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/8 73.0.0.0/8 74.0.0.0/8 75.0.0.0/8 76.0.0.0/8 77.0.0.0/8 78.0.0.0/8 79.0.0.0/8 80.0.0.0/4 96.0.0.0/4 112.0.0.0/8 113.0.0.0/8 114.0.0.0/8 115.0.0.0/8 116.0.0.0/8 117.0.0.0/8 118.0.0.0/8 119.0.0.0/8 120.0.0.0/8 121.0.0.0/8 122.0.0.0/8 123.0.0.0/8 124.0.0.0/8 125.0.0.0/8 126.0.0.0/8 197.0.0.0/8 217.0.0.0/8 218.0.0.0/8 219.0.0.0/8 220.0.0.0/6"
 
 ##############################################################################
-# Set up the basic structure of the built-in and other top level chains
+# Define some system specific port numbers
 #
 
-echo -n "Starting IP Firewall..."
+ipv4=/proc/sys/net/ipv4
+
+# Range of local return port numbers
+
+if [ -r $ipv4/ip_local_port_range ]
+then
+	normal_ports=`sed 's/\W/:/' < $ipv4/ip_local_port_range`
+else
+	normal_ports="1024:"
+fi
+
+# Range of port numbers used for masquerading
+
+[ -z "$masq_ports" ] && masq_ports="61000:65096"
+
+##############################################################################
+# Define some default port numbers. You can override these in the policy file.
+#
+
+# Range of X Window server ports to avoid like the plague
+
+XWIN_PORTS="6000:6063"
+
+# List of other tcp ports to avoid like the plague (NFS, SOCKS, OpenWindows)
+
+EVIL_TCP_PORTS="2049 1080 2000"
+
+# Allowable HTTP server port numbers (this is stupid, use a proxy)
+
+EXTERNAL_HTTP_PORTS="80 81 800 8000 8080 8088"
+INTERNAL_HTTP_PORTS="80"
+
+# Allowable HTTPS server port numbers (this is stupid, use a proxy)
+
+EXTERNAL_HTTPS_PORTS="443"
+INTERNAL_HTTPS_PORTS="443"
+
+# Allowable HTTP PROXY server port numbers
+
+EXTERNAL_HTTP_PROXY_PORTS="8080"
+INTERNAL_HTTP_PROXY_PORTS="8080"
+
+# Allowable GOPHER server port numbers (this is stupid, use a proxy)
+
+EXTERNAL_GOPHER_PORTS="70"
+INTERNAL_GOPHER_PORTS="70"
+
+# Allowable WAIS server port numbers (this is stupid, use a proxy)
+
+EXTERNAL_WAIS_PORTS="210"
+INTERNAL_WAIS_PORTS="210"
+
+# Allowable udp ports used by traceroute
+
+ITRACEROUTE_SRC_PORTS="32769:65535"
+ITRACEROUTE_DST_PORTS="33434:33523"
+OTRACEROUTE_SRC_PORTS="32769:65535"
+OTRACEROUTE_DST_PORTS="33434:33523"
+
+# Allowable tcp ports used by ssh1
+
+[ -z "$SSH1_PORTS" ] && SSH1_PORTS="513:1023"
+
+##############################################################################
+# Define some default timeout values used for masquerading. You can override
+# these in the policy file
+#
+
+# Timeout in seconds for masqueraded tcp addresses
+# Zero means leave the timeout as it is
+
+MASQ_TCP_TIMEOUT="0"
+
+# Timeout in seconds for masqueraded tcp addresses after receiving FIN
+# Zero means leave the timeout as it is
+
+MASQ_TCPFIN_TIMEOUT="0"
+
+# Timeout in seconds for masqueraded udp addresses
+# Zero means leave the timeout as it is
+
+MASQ_UDP_TIMEOUT="0"
+
+##############################################################################
+# Load the IP packet filtering policy and check it
+#
+
+# Source the policy file
+
+. $policy
+
+# Check that $TRUSTED_INTERFACES is defined (at least lo)
+
+if [ -z "$TRUSTED_INTERFACES" ]
+then
+	echo "$0: \$TRUSTED_INTERFACES must be defined in $policy (e.g. TRUSTED_INTERFACES=\"eth0 lo\")" >&2
+	exit 1
+fi
+
+trusted_interfaces="$TRUSTED_INTERFACES"
+
+# If $INTERNAL_NETWORKS isn't defined, derive it from $trusted_interfaces
+
+[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | perl -e '
+
+	my %network = ();
+	my $iface = undef;
+
+	while (<STDIN>)
+	{
+		if (defined $iface && $_ =~ /inet addr:(\d+\.\d+\.\d+\.\d+)\s+.*\s+Mask:(\d+\.\d+\.\d+\.\d+)/)
+		{
+			my $network = $1 . "/" . $2;
+			$network{$iface} = (exists $network{$iface}) ? ($network{$iface} . " " . $network) : $network;
+			$iface = undef;
+			next;
+		}
+
+		my ($if) = $_ =~ /^(\S+)\s/;
+		next unless defined $if;
+		my ($device, $alias) = $if =~ /^([^:]+):(\d+)$/;
+		$iface = (defined $device && defined $alias) ? $device : $if;
+	}
+
+	for (@ARGV)
+	{
+		next if $_ eq "lo";
+		next unless exists $network{$_};
+		print $network{$_}, " ";
+	}
+
+' $trusted_interfaces`"
+
+# If masquerading is required, check that $INTERNAL_NETWORKS is defined
+
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		if [ -z "$INTERNAL_NETWORKS" ]
+		then
+			echo "$0: \$INTERNAL_NETWORKS must be defined in $policy (e.g. INTERNAL_NETWORKS=\"192.168.1.0/24\")" >&2
+			exit 1
+		fi
+		;;
+esac
+
+# Check that $UNTRUSTED_INTERFACES is defined
+
+if [ -z "$UNTRUSTED_INTERFACES" ]
+then
+	echo "$0: \$UNTRUSTED_INTERFACES must be defined in $policy (e.g. UNTRUSTED_INTERFACES=\"ppp0\")" >&2
+	exit 1
+fi
+
+untrusted_interfaces="$UNTRUSTED_INTERFACES"
+
+# Check that there aren't too many interfaces listed in $UNTRUSTED_INTERFACES
+
+if [ "`perl -e 'print $#ARGV + 1' $untrusted_interfaces`" -gt 10 ]
+then
+	echo "$0: Too many untrusted interfaces (only supports 10)" >&2
+	exit 1
+fi
+
+# Find the IP addresses of the untrusted interfaces (if they are up).
+# These addresses will be used in the packet rules. If any of the
+# interfaces aren't up yet, we will use $any in the packet rules.
+# If any interfaces have aliases, we treat their addresses as being
+# equal for that interface.
+
+untrusted_addresses="`ifconfig | perl -e '
+
+	my %iface = ();
+	my $iface = undef;
+
+	while (<STDIN>)
+	{
+		if (defined $iface && $_ =~ /inet addr:(\d+\.\d+\.\d+\.\d+)\s/)
+		{
+			$iface{$iface} = (exists $iface{$iface}) ? ($iface{$iface} . "," . $1) : $1;
+			$iface = undef;
+			next;
+		}
+
+		my ($if) = $_ =~ /^(\S+)\s/;
+		next unless defined $if;
+		my ($device, $alias) = $if =~ /^(\w+):(\d+)$/;
+		$iface = (defined $device && defined $alias) ? $device : $if;
+	}
+
+	for (@ARGV)
+	{
+		print(((exists $iface{$_}) ? $iface{$_} : "'$any'") , " ");
+	}
+
+' $untrusted_interfaces`"
+
+# Check that $OCDNS_SERVERS or $OSDNS_SERVERS is defined or really obvious
+
+[ -z "$OCDNS_SERVERS" ] && OCDNS_SERVERS="`awk '/^nameserver/ { if ($2 != "127.0.0.1") { printf "%s/32\n", $2 } }' /etc/resolv.conf`"
+if [ -z "$OCDNS_SERVERS$OSDNS_SERVERS" ]
+then
+	echo "$0: Either \$OCDNS_SERVERS or \$OSDNS_SERVERS must be defined in $policy" >&2
+	exit 1
+fi
+
+# Log all denied/rejected packets
+# Note: This is stupid. Logging should really be configurable
+
+case "$LOG" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		LOG=""
+		;;
+	*)
+		LOG="-l"
+		;;
+esac
+
+##############################################################################
+# Debugging
+#
+
+ipchains() {
+	case "$fwdebug" in
+		[Yy]es|[Tt]rue|[Oo]n|1)
+			echo ipchains $* >&2
+			;;
+	esac
+	/sbin/ipchains $*
+}
+
+##############################################################################
+# Start by setting the policy for the top level chains and flushing all
+# chains.
+#
+
+echo -n "Starting IP Packet Filter"
 
 # Set policies for the built-in chains
 
 ipchains -P input DENY
 ipchains -P output REJECT
-ipchains -P forward DENY
+ipchains -P forward REJECT
 
 # Remove all existing rules/chains
 
 ipchains -F
 ipchains -X
 
-# Accept all packets on trusted interfaces
+##############################################################################
+# The following sections construct rule sets for individual internet services.
+# First, we define some helper functions.
+#
 
-for iface in $TRUSTED_INTERFACES
-do
-	ipchains -A input  -i $iface -j ACCEPT
-	ipchains -A output -i $iface -j ACCEPT
-done
+# Create a chain
+#
+# chain <basename> <index>
 
-# Create incoming and outgoing chains for the untrusted network interface
+chain() {
+	name=$1; index=$2
+	eval [ -z "\$chain_$name$index" ] && ipchains -N $name$index
+	eval chain_$name$index="1"
+}
 
-ipchains -N i$untrusted
-ipchains -N o$untrusted
+# Create input and output chains by prepending 'i' and 'o', respectively,
+# to the basename and appending <index> to both
+#
+# chains <basename> <index>
 
-# Direct packets through the untrusted interface's direction-based chains
+chains() {
+	base=$1; index=$2
+	chain i$base $index
+	chain o$base $index
+}
 
-ipchains -A input  -i $untrusted -j i$untrusted
-ipchains -A output -i $untrusted -j o$untrusted
+# Accept a tcp service
+#
+# tcp <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport>
+#
+# Accept tcp src to dst on chain1 and accept tcp dst to src responses on chain2.
 
-# Masquerade packets between the local network and everywhere else
+tcp() {
+	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT
+	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j ACCEPT
+}
+
+# Accept an outgoing tcp service for this host and masqueraded hosts
+#
+# tcpm <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport>
 
 case "$MASQUERADE" in
-	yes|true|on)
-		ipchains -A forward -s $LOCALNET -j MASQ
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		tcpm() {
+			chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+			tcp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+			tcp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
+		}
+		;;
+	*)
+		tcpm() {
+			tcp $*
+		}
 		;;
 esac
 
-# Log all packets that reach the end of their chain
+# Deny a tcp service
+#
+# tcpno <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport> <target1> <target2>
+#
+# On chain1, make tcp src to dst jump to target1. On chain2, make tcp dst to
+# src responses jump to target2. If chain1 is the input chain and chain2 is
+# the output chain, target1 should be deny and target2 should be reject.
+# If chain1 is the output chain and chain2 is the input chain, target1 should
+# be reject and target2 should be deny.
 
-if [ ! -z "$LOG" ]
-then
-	ipchains -A input   $LOG
-	ipchains -A output  $LOG
-	ipchains -A forward $LOG
-fi
+tcpno() {
+	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6; target1=$7; target2=$8
+	ipchains -A $chain1 -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -j $target1 $LOG
+	ipchains -A $chain2 -p tcp -s $dstaddr $dstport -d $srcaddr $srcport ! -y -j $target2 $LOG
+}
+
+# Deny an outgoing tcp service for this host and masqueraded hosts
+#
+# tcpmno <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport> <target1> <target2>
+
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		tcpmno() {
+			chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6; target1=$7; target2=$8
+			tcpno $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport $target1 $target2
+			tcpno $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport $target1 $target2
+		}
+		;;
+	*)
+		tcpmno() {
+			tcpno $*
+		}
+		;;
+esac
+
+# Accept or deny a tcp connection
+#
+# tcpsyn <chain> <srcaddr> <srcport> <dstaddr> <dstport> <target> <extra>
+#
+# On chain, make tcp src to dst connections jump to target. extra is for the
+# logging option, -l.
+
+tcpsyn() {
+	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; target=$6; extra=$7
+	ipchains -A $chain -p tcp -s $srcaddr $srcport -d $dstaddr $dstport -y -j $target $extra
+}
+
+# Accept a udp packet
+#
+# udp1 <chain> <srcaddr> <srcport> <dstaddr> <dstport> <extra>
+#
+# On chain, accept udp src to dst. extra is for the logging option, -l.
+
+udp1() {
+	chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; extra=$6
+	ipchains -A $chain -p udp -s $srcaddr $srcport -d $dstaddr $dstport -j ACCEPT $extra
+}
+
+# Accept an outgoing udp service for this host and masqueraded hosts
+#
+# udpm1 <chain> <srcaddr> <srcport> <dstaddr> <dstport> <extra>
+
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		udpm1() {
+			chain=$1; srcaddr=$2; srcport=$3; dstaddr=$4; dstport=$5; extra=$6;
+			udp1 $chain $srcaddr $srcport $dstaddr $dstport $extra
+			udp1 $chain $srcaddr $masq_ports $dstaddr $dstport $extra
+		}
+		;;
+	*)
+		udpm1() {
+			udp1 $*
+		}
+		;;
+esac
+
+# Accept a udp service
+#
+# udp <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport>
+#
+# Accept udp src to dst on chain1 and udp dst to src on chain2.
+
+udp() {
+	chain1=$1; chain2=$2; srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6
+	udp1 $chain1 $srcaddr $srcport $dstaddr $dstport
+	udp1 $chain2 $dstaddr $dstport $srcaddr $srcport
+}
+
+# Accept an outgoing udp service for this host and masqueraded hosts
+#
+# udpm <chain1> <chain2> <srcaddr> <srcport> <dstaddr> <dstport>
+
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		udpm() {
+			chain1=$1; chain2=$2 srcaddr=$3; srcport=$4; dstaddr=$5; dstport=$6;
+			udp $chain1 $chain2 $srcaddr $srcport $dstaddr $dstport
+			udp $chain1 $chain2 $srcaddr $masq_ports $dstaddr $dstport
+		}
+		;;
+	*)
+		udpm() {
+			udp $*
+		}
+		;;
+esac
+
+# Accept icmp
+#
+# icmp <chain> <srcaddr> <dstaddr> <type> <extra>
+#
+# Accept icmp type from src to dst on chain. extra is for the logging
+# option, -l.
+
+icmp() {
+	chain=$1; srcaddr=$2; dstaddr=$3; type=$4; extra=$5
+	ipchains -A $chain -p icmp -s $srcaddr $type -d $dstaddr -j ACCEPT $extra
+}
+
+# Accept other protocols (for pptp and ipsec)
+#
+# other <protocol> <chain1> <chain2> <srcaddr> <dstaddr>
+#
+# Accept other protocol from src to dst on chain1 and from dst to src on chain2.
+
+other() {
+	protocol=$1; chain1=$2; chain2=$3; srcaddr=$4; dstaddr=$5
+	ipchains -A $chain1 -p $protocol -s $srcaddr -d $dstaddr -j ACCEPT
+	ipchains -A $chain2 -p $protocol -s $dstaddr -d $srcaddr -j ACCEPT
+}
+
+# Takes the name of a policy variable and an address loop index as arguments.
+# If both the common policy variable and its interface specific equivalent are
+# empty, the interface specific policy variable is set to $any. This is used
+# by services which accept access to/from all hosts by default.
+
+default_to_any() {
+	common=$1; index=$2; eval specific="\${common}_$index"
+	eval [ -z "\"\$$common\$$specific\"" ] && eval $specific="$any"
+}
+
+# Takes the name of a policy variable and an address loop index as arguments.
+# Outputs the contents of the common policy variable and its interface specific
+# equivalent. This is used by all services.
+
+combine() {
+	common=$1; index=$2; eval specific="\${common}_$index"
+	eval echo \$$common \$$specific
+}
+
+# Appends the first argument to each of the remaining arguments and outputs them
+
+number() {
+	num=$1; shift
+	for item in $*
+	do
+		echo $item$num
+	done
+}
 
 ##############################################################################
-# The following sections construct rule sets for individual internet services
-# and other random packets.
+# For each untrusted interface's ip addresses, create rules for each
+# supported service using the ip address and the contents of the relevant
+# policy variables. They might not all end up being used but we don't know
+# until later when we look at the SERVICES policy variables. This doesn't
+# affect the actual packet filtering but it does slow down the process of
+# starting the firewall :( XXX This should be fixed.
 #
+
+# Each untrusted interface has a number from 0 to 9.
+
+i=-1
+for selves in $untrusted_addresses
+do
+	i=`expr $i + 1`
+
+	# They may have aliases and hence multiple ip addresses.
+
+	for self in `echo $selves | sed 's/,/ /g'`
+	do
+
+##############################################################################
+# Incoming Client DNS
+#
+# Note: This is needed when this host runs a registered DNS server that can
+# be accessed by external hosts (resolvers or BIND 8 servers without
+# "query-source port 53"). For a bastion DNS slave server host, give access
+# to all hosts. For an internal DNS master server host, give access to the
+# bastion DNS server host for zone transfers if it runs BIND 8 without
+# "query-source port 53". However, it would be better for the bastion DNS
+# slave server to "query-source port 53" so that only incoming Server DNS
+# from the bastion host is required for this host.
+#
+
+chains icdns $i # incoming and outgoing rule chains for incoming Client DNS
+
+# Permit Client DNS connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any ICDNS_CLIENTS $i
+
+for client in `combine ICDNS_CLIENTS $i`
+do
+	udp iicdns$i oicdns$i $client 1024: $self 53
+	tcp iicdns$i oicdns$i $client 1024: $self 53
+done
+
+##############################################################################
+# Outgoing Client DNS
+#
+# Note: This is needed when this host's resolver queries external DNS
+# servers. This is also needed even when the resolver queries the local DNS
+# server if that server is BIND 8 without "query-source port 53". If the
+# resolver only queries the local DNS server which has been configured with
+# "query-source port 53", only outgoing Server DNS is required for this
+# host.
+#
+
+chains ocdns $i # incoming and outgoing rule chains for outgoing Client DNS
+
+# Permit DNS requests to specific external hosts
+
+for server in `combine OCDNS_SERVERS $i`
+do
+	udpm oocdns$i iocdns$i $self $normal_ports $server 53
+	tcpm oocdns$i iocdns$i $self $normal_ports $server 53
+done
+
+##############################################################################
+# Incoming Server DNS
+#
+# Note: This is only needed when this host runs a registered DNS server that
+# can be accessed by external DNS servers (BIND 4 servers and BIND 8 servers
+# with "query-source port 53"). For a bastion DNS slave server host, give
+# access to all hosts. For an internal DNS master server host, give access
+# to the bastion DNS slave server host for zone transfers if it runs BIND 4
+# or BIND 8 with "query-source port 53".
+#
+
+chains isdns $i # incoming and outgoing rule chains for incoming Server DNS
+
+# Permit Server DNS connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any ISDNS_CLIENTS $i
+
+for client in `combine ISDNS_CLIENTS $i`
+do
+	udp iisdns$i oisdns$i $client 53 $self 53
+	tcp iisdns$i oisdns$i $client 1024: $self 53
+done
+
+##############################################################################
+# Outgoing Server DNS
+#
+# Note: This is needed when this host runs a DNS server (BIND 4 or BIND 8
+# with "query-source port 53") that queries external DNS servers. For an
+# internal host, forward all queries to a bastion (or your ISP's) DNS server
+# and give access to only those servers. For a bastion DNS server host, give
+# access to all hosts.
+#
+
+chains osdns $i # outgoing and incoming rule chains for outgoing Server DNS
+
+# Permit Server DNS requests to specific external hosts
+
+for server in `combine OSDNS_SERVERS $i`
+do
+	udpm oosdns$i iosdns$i $self 53 $server 53
+	tcpm oosdns$i iosdns$i $self $normal_ports $server 53
+done
 
 ##############################################################################
 # Incoming SMTP
@@ -195,28 +734,17 @@ fi
 # Otherwise, only permit connections from the bastion host and run smap.
 #
 
-ipchains -N iismtp # incoming packets for incoming SMTP
-ipchains -N oismtp # outgoing packets for incoming SMTP
+chains ismtp $i # incoming and outgoing rule chains for incoming SMTP
 
-# Permit SMTP connections from specific external hosts.
+# Permit SMTP connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $SMTP_CLIENTS
+default_to_any SMTP_CLIENTS $i
+
+for client in `combine SMTP_CLIENTS $i`
 do
-	# Incoming SMTP connection from the specified host
-	ipchains -A iismtp -p tcp -s $client 1024: -d $self 25 -j ACCEPT
-	# Responses from the SMTP server
-	ipchains -A oismtp -p tcp -s $self 25 -d $client 1024: ! -y -j ACCEPT
+	tcp iismtp$i oismtp$i $client 1024: $self 25
 done
-
-# Permit SMTP connections from all external hosts if no clients were specified.
-
-if [ -z "$SMTP_CLIENTS" ]
-then
-	# Incoming SMTP connection from any host
-	ipchains -A iismtp -p tcp -s $any 1024: -d $self 25 -j ACCEPT
-	# Responses from the SMTP server
-	ipchains -A oismtp -p tcp -s $self 25 -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing SMTP
@@ -225,28 +753,17 @@ fi
 # only permit connections to the bastion host.
 #
 
-ipchains -N oosmtp # outgoing packets for outgoing SMTP
-ipchains -N iosmtp # incoming packets for outgoing SMTP
+chains osmtp $i # outgoing and incoming rule chains for outgoing SMTP
 
-# Permit SMTP connections to specific external hosts.
+# Permit SMTP connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $SMTP_SERVERS
+default_to_any SMTP_SERVERS $i
+
+for server in `combine SMTP_SERVERS $i`
 do
-	# Outgoing SMTP connection to the specified host
-	ipchains -A oosmtp -p tcp -s $self 1024: -d $server 25 -j ACCEPT
-	# Responses from the SMTP server
-	ipchains -A iosmtp -p tcp -s $server 25 -d $self 1024: ! -y -j ACCEPT
+	tcpm oosmtp$i iosmtp$i $self $normal_ports $server 25
 done
-
-# Permit SMTP connections to all hosts if no servers were specified.
-
-if [ -z "$SMTP_SERVERS" ]
-then
-	# Outgoing SMTP connection to any host
-	ipchains -A oosmtp -p tcp -s $self 1024: -d $any 25 -j ACCEPT
-	# Responses from the SMTP server
-	ipchains -A iosmtp -p tcp -s $any 25 -d $self 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Incoming POP
@@ -255,28 +772,17 @@ fi
 # and private mail will be transmitted over the net in plaintext.
 #
 
-ipchains -N iipop  # incoming packets for incoming POP
-ipchains -N oipop  # outgoing packets for incoming POP
+chains ipop $i # incoming and outgoing rule chains for incoming POP
 
-# Permit POP connections from specific external hosts.
+# Permit POP connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $POP_CLIENTS
+default_to_any POP_CLIENTS $i
+
+for client in `combine POP_CLIENTS $i`
 do
-	# Incoming POP connection from the specified host
-	ipchains -A iipop -p tcp -s $client 1024: -d $self 109:110 -j ACCEPT
-	# Responses from the POP servers
-	ipchains -A oipop -p tcp -s $self 109:110 -d $client 1024: ! -y -j ACCEPT
+	tcp iipop$i oipop$i $client 1024: $self 109:110
 done
-
-# Permit POP connections from all external hosts if no clients were specified.
-
-if [ -z "$POP_CLIENTS" ]
-then
-	# Incoming POP connection from any host
-	ipchains -A iipop -p tcp -s $any 1024: -d $self 109:110 -j ACCEPT
-	# Responses from the POP servers
-	ipchains -A oipop -p tcp -s $self 109:110 -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing POP
@@ -287,146 +793,236 @@ fi
 # sensitive POP access.
 #
 
-ipchains -N oopop  # outgoing packets for outgoing POP
-ipchains -N iopop  # incoming packets for outgoing POP
+chains opop $i # outgoing and incoming rule chains for outgoing POP
 
 # Deny POP connections to specific external hosts where the user name and
 # password required to connect or the contents of private mail is too
-# sensitive to be transmitted over the net in plaintext.
+# sensitive to be transmitted over the net in plaintext
 
-for server in $EVIL_POP_SERVERS
+for server in `combine EVIL_POP_SERVERS $i`
 do
-	# Reject POP connections to the specified host
-	ipchains -A oopop -p tcp -s $self 1024: -d $server 109:110 -j REJECT $LOG
-	# Deny responses from the POP servers
-	ipchains -A iopop -p tcp -s $server 109:110 -d $self 1024: ! -y -j DENY $LOG
+	tcpmno oopop$i iopop$i $self $normal_ports $server 109:110 REJECT DENY
 done
 
-# Permit POP connections to specific external hosts.
+# Permit POP connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $POP_SERVERS
+default_to_any POP_SERVERS $i
+
+for server in `combine POP_SERVERS $i`
 do
-	# Outgoing POP connection to the specified host
-	ipchains -A oopop -p tcp -s $self 1024: -d $server 109:110 -j ACCEPT
-	# Responses from the POP servers
-	ipchains -A iopop -p tcp -s $server 109:110 -d $self 1024: ! -y -j ACCEPT
+	tcpm oopop$i iopop$i $self $normal_ports $server 109:110
 done
 
-# Permit POP connections to all external hosts if no servers were specified.
+##############################################################################
+# Incoming IMAP
+#
+# Note: This is an extremely bad idea if any external IMAP clients or internal
+# IMAP servers don't support and use the "AUTHENTICATE" command instead of the
+# "LOGIN" command since user names, passwords and people's private mail will
+# be transmitted over the net in plaintext.
+#
 
-if [ -z "$POP_SERVERS" ]
-then
-	# Outgoing POP connection to any host
-	ipchains -A oopop -p tcp -s $self 1024: -d $any 109:110 -j ACCEPT
-	# Responses from the POP server
-	ipchains -A iopop -p tcp -s $any 109:110 -d $self 1024: ! -y -j ACCEPT
-fi
+chains iimap $i # incoming and outgoing rule chains for incoming IMAP
+
+# Permit IMAP connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any IMAP_CLIENTS $i
+
+for client in `combine IMAP_CLIENTS $i`
+do
+	tcp iiimap$i oiimap$i $client 1024: $self 143
+done
+
+##############################################################################
+# Outgoing IMAP
+#
+# Note: This is an extremely bad idea if any internal IMAP clients or external
+# IMAP servers don't support and use the "AUTHENTICATE" command instead of the
+# "LOGIN" command since user names, passwords and people's private mail will
+# be transmitted over the net in plaintext. Use $EVIL_IMAP_SERVERS to deny
+# such uses while allowing less sensitive IMAP access.
+#
+
+chains oimap $i # outgoing and incoming rule chains for outgoing IMAP
+
+# Deny IMAP connections to specific external hosts where the user name and
+# password required to connect or the contents of private mail is too
+# sensitive to be transmitted over the net in plaintext and it is not known
+# that the external IMAP server and the internal IMAP clients support and use
+# the "AUTHENTICATE" command
+
+for server in `combine EVIL_IMAP_SERVERS $i`
+do
+	tcpmno ooimap$i ioimap$i $self $normal_ports $server 143 REJECT DENY
+done
+
+# Permit IMAP connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any IMAP_SERVERS $i
+
+for server in `combine IMAP_SERVERS $i`
+do
+	tcpm ooimap$i ioimap$i $self $normal_ports $server 143
+done
+
+##############################################################################
+# Incoming SSH1
+#
+# Note: Permit this rather than telnet or ftp. You can restrict this to
+# specific, trusted hosts.
+#
+
+chains issh1 $i # incoming and outgoing rule chains for incoming SSH1
+
+# Permit SSH1 connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SSH1_CLIENTS $i
+
+for client in `combine SSH1_CLIENTS $i`
+do
+	tcp iissh1$i oissh1$i $client 1024: $self 22
+	tcp iissh1$i oissh1$i $client $SSH1_PORTS $self 22
+done
+
+##############################################################################
+# Outgoing SSH1
+#
+# Note: Permit this rather than telnet or ftp. You can restrict this to
+# specific, trusted hosts.
+#
+
+chains ossh1 $i # outgoing and incoming rule chains for outgoing SSH1
+
+# Permit SSH1 connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any SSH1_SERVERS $i
+
+for server in `combine SSH1_SERVERS $i`
+do
+	tcpm oossh1$i iossh1$i $self $normal_ports $server 22
+	tcp oossh1$i iossh1$i $self $SSH1_PORTS $server 22
+done
+
+##############################################################################
+# Incoming SSH2
+#
+# Note: Permit this rather than telnet or ftp. You can restrict this to
+# specific, trusted hosts.
+#
+
+chains issh2 $i # incoming and outgoing rule chains for incoming SSH2
+
+# Permit SSH2 connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SSH2_CLIENTS $i
+
+for client in `combine SSH2_CLIENTS $i`
+do
+	tcp iissh2$i oissh2$i $client 1024: $self 22
+done
+
+##############################################################################
+# Outgoing SSH2
+#
+# Note: Permit this rather than telnet or ftp. You can restrict this to
+# specific, trusted hosts. Those hosts will be permitted to connect to
+# unprivileged tcp ports on this host.
+#
+
+chains ossh2 $i # outgoing and incoming rule chains for outgoing SSH2
+
+# Permit SSH2 connections to specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SSH2_SERVERS $i
+
+for server in `combine SSH2_SERVERS $i`
+do
+	tcpm oossh2$i iossh2$i $self $normal_ports $server 22
+done
 
 ##############################################################################
 # Incoming FTP
 #
-# Note: This is an extremely bad idea if you are running a non-anonymous
-# FTP server since real user names, passwords and private files will be
-# transmitted over the net in plaintext. Use sftp instead. This should only
-# be used on a bastion host running an anonymous FTP server.
+# Note: This is an extremely bad idea if this host is are running a
+# non-anonymous FTP server since real user names, passwords and private
+# files will be transmitted over the net in plaintext. Use rsync over ssh
+# instead. This should only be used on a bastion host running an anonymous
+# FTP server.
 #
 
-ipchains -N iiftp  # incoming packets for incoming FTP
-ipchains -N oiftp  # outgoing packets for incoming FTP
+chains iftp $i # incoming and outgoing rule chains for incoming FTP
 
-# Permit FTP connections from specific external hosts.
+# Permit FTP connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $FTP_CLIENTS
+default_to_any FTP_CLIENTS $i
+
+for client in `combine FTP_CLIENTS $i`
 do
-	# Incoming FTP request from the specified host
-	ipchains -A iiftp -p tcp -s $client 1024: -d $self 21 -j ACCEPT
-	# Response to incoming FTP request
-	ipchains -A oiftp -p tcp -s $self 21 -d $client 1024: ! -y -j ACCEPT
+	tcp iiftp$i oiftp$i $client 1024: $self 21
 done
-
-# Permit FTP connections from all external hosts if no clients were specified.
-
-if [ -z "$FTP_CLIENTS" ]
-then
-	# Incoming FTP request from any host
-	ipchains -A iiftp -p tcp -s $any 1024: -d $self 21 -j ACCEPT
-	# Response to incoming FTP request
-	ipchains -A oiftp -p tcp -s $self 21 -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Incoming Normal FTP
 #
-# Note: This is an extremely bad idea if you are running a non-anonymous
-# FTP server since real user names, passwords and private files will be
-# transmitted over the net in plaintext. Use sftp instead. This should only
-# be used on a bastion host running an anonymous FTP server.
+# Note: This is an extremely bad idea if this host is are running a
+# non-anonymous FTP server since real user names, passwords and private
+# files will be transmitted over the net in plaintext. Use rsync over ssh
+# instead. This should only be used on a bastion host running an anonymous
+# FTP server.
 #
 
-ipchains -N oinftp # outgoing packets for incoming FTP (normal mode)
-ipchains -N iinftp # incoming packets for incoming FTP (normal mode)
+chains inftp $i # outgoing and incoming rule chains for incoming FTP (normal mode)
 
 # Include common incoming FTP connection rules
 
-ipchains -A oinftp -j oiftp
-ipchains -A iinftp -j iiftp
+ipchains -A oinftp$i -j oiftp$i
+ipchains -A iinftp$i -j iiftp$i
 
-# Permit Normal FTP connections from specific external hosts.
+# Permit Normal FTP connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $FTP_CLIENTS
+default_to_any FTP_CLIENTS $i
+
+for client in `combine FTP_CLIENTS $i`
 do
-	# Data channel creation for incoming FTP request, normal mode
-	ipchains -A oinftp -p tcp -s $self 20 -d $client 1024: -j ACCEPT
-	# Data channel responses for incoming FTP request, normal mode
-	ipchains -A iinftp -p tcp -s $client 1024: -d $self 20 ! -y -j ACCEPT
+	tcp oinftp$i iinftp$i $self 20 $client 1024:
 done
-
-# Permit FTP connections from all external hosts if no clients were specified.
-
-if [ -z "$FTP_CLIENTS" ]
-then
-	# Data channel creation for incoming FTP request, normal mode
-	ipchains -A oinftp -p tcp -s $self 20 -d $any 1024: -j ACCEPT
-	# Data channel responses for incoming FTP request, normal mode
-	ipchains -A iinftp -p tcp -s $any 1024: -d $self 20 ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Incoming Passive FTP
 #
-# Note: This is an extremely bad idea if you are running a non-anonymous
-# FTP server since real user names, passwords and private files will be
-# transmitted over the net in plaintext. Use sftp instead. This should only
-# be used on a bastion host running an anonymous FTP server.
+# Note: This is an extremely bad idea if this host is are running a
+# non-anonymous FTP server since real user names, passwords and private
+# files will be transmitted over the net in plaintext. It is also an
+# extremely bad idea since it may allow any host to connect to any tcp port
+# above 1023. Use rsync over ssh instead. This should only be used on a
+# bastion host running an anonymous FTP server.
 #
 
-ipchains -N iipftp # incoming packets for incoming FTP (passive mode)
-ipchains -N oipftp # outgoing packets for incoming FTP (passive mode)
+chains ipftp $i # incoming and outgoing rule chains for incoming FTP (passive mode)
 
 # Include common incoming FTP connection rules
 
-ipchains -A iipftp -j iiftp
-ipchains -A oipftp -j oiftp
+ipchains -A iipftp$i -j iiftp$i
+ipchains -A oipftp$i -j oiftp$i
 
-# Permit Passive FTP connections from specific external hosts.
+# Permit Passive FTP connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $FTP_CLIENTS
+default_to_any FTP_CLIENTS $i
+
+for client in `combine FTP_CLIENTS $i`
 do
-	# Data channel creation for incoming FTP request, passive mode
-	ipchains -A iipftp -p tcp -s $client 1024: -d $self 1024: -j ACCEPT
-	# Data channel responses for incoming FTP request, passive mode
-	ipchains -A oipftp -p tcp -s $self 1024: -d $client 1024: ! -y -j ACCEPT
+	tcp iipftp$i oipftp$i $client 1024: $self $normal_ports
 done
-
-# Permit FTP connections from all external hosts if no clients were specified.
-
-if [ -z "$FTP_CLIENTS" ]
-then
-	# Data channel creation for incoming FTP request, passive mode
-	ipchains -A iipftp -p tcp -s $any 1024: -d $self 1024: -j ACCEPT
-	# Data channel responses for incoming FTP request, passive mode
-	ipchains -A oipftp -p tcp -s $self 1024: -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing FTP
@@ -434,43 +1030,29 @@ fi
 # Note: This is an extremely bad idea if used for non-anonymous FTP access
 # since real user names, passwords and private files will be transmitted
 # over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
-# require that users use sftp instead.
+# require that users use rsync over ssh instead.
 #
 
-ipchains -N ooftp  # outgoing packets for outgoing FTP
-ipchains -N ioftp  # incoming packets for outgoing FTP
+chains oftp $i # outgoing and incoming rule chains for outgoing FTP
 
 # Deny FTP connections to specific external hosts where the user name and
 # password required to connect or the contents of the files is too sensitive
-# to be transmitted over the net in plaintext.
+# to be transmitted over the net in plaintext
 
-for server in $EVIL_FTP_SERVERS
+for server in `combine EVIL_FTP_SERVERS $i`
 do
-	# Reject outgoing insecure FTP request
-	ipchains -A ooftp -p tcp -s $self 1024: -d $server 21 -j REJECT $LOG
-	# Deny response to outgoing insecure FTP request
-	ipchains -A ioftp -p tcp -s $server 21 -d $self 1024: ! -y -j DENY $LOG
+	tcpmno ooftp$i ioftp$i $self $normal_ports $server 21 REJECT DENY
 done
 
-# Permit FTP connections to specific external hosts.
+# Permit FTP connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $FTP_SERVERS
+default_to_any FTP_SERVERS $i
+
+for server in `combine FTP_SERVERS $i`
 do
-	# Outgoing FTP request
-	ipchains -A ooftp -p tcp -s $self 1024: -d $server 21 -j ACCEPT
-	# Response to outgoing FTP request
-	ipchains -A ioftp -p tcp -s $server 21 -d $self 1024: ! -y -j ACCEPT
+	tcpm ooftp$i ioftp$i $self $normal_ports $server 21
 done
-
-# Permit FTP connections to all external hosts if no servers were specified.
-
-if [ -z "$FTP_SERVERS" ]
-then
-	# Outgoing FTP request
-	ipchains -A ooftp -p tcp -s $self 1024: -d $any 21 -j ACCEPT
-	# Response to outgoing FTP request
-	ipchains -A ioftp -p tcp -s $any 21 -d $self 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing Normal FTP
@@ -478,50 +1060,36 @@ fi
 # Note: This is an extremely bad idea if used for non-anonymous FTP access
 # since real user names, passwords and private files will be transmitted
 # over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
-# require that users use sftp instead. It is also an extremely bad idea
-# since it allows any host to connect to any tcp port above 1023. Instead,
-# restrict connections to a bastion host running an FTP proxy.
+# require that users use rsync over ssh instead. It is also an extremely bad
+# idea since it allows any host to connect to any tcp port above 1023.
+# Instead, restrict connections to a bastion host running an FTP proxy.
 #
 
-ipchains -N ionftp # incoming packets for outgoing FTP (normal mode)
-ipchains -N oonftp # outgoing packets for outgoing FTP (normal mode)
+chains onftp $i # incoming and outgoing rule chains for outgoing FTP (normal mode)
 
 # Include common outgoing FTP connection rules
 
-ipchains -A ionftp -j ioftp
-ipchains -A oonftp -j ooftp
+ipchains -A ionftp$i -j ioftp$i
+ipchains -A oonftp$i -j ooftp$i
 
 # Deny FTP connections to specific external hosts where the user name and
 # password required to connect or the contents of the files is too sensitive
-# to be transmitted over the net in plaintext.
+# to be transmitted over the net in plaintext
 
-for server in $EVIL_FTP_SERVERS
+for server in `combine EVIL_FTP_SERVERS $i`
 do
-	# Deny data channel creation for outgoing FTP request, normal mode
-	ipchains -A ionftp -p tcp -s $server 20 -d $self 1024: -j DENY $LOG
-	# Reject data channel responses for outgoing FTP request, normal mode
-	ipchains -A oonftp -p tcp -s $self 1024: -d $server 20 ! -y -j REJECT $LOG
+	tcpno ionftp$i oonftp$i $server 20 $self $normal_ports DENY REJECT
 done
 
-# Permit Normal FTP connections to specific external hosts.
+# Permit Normal FTP connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $FTP_SERVERS
+default_to_any FTP_SERVERS $i
+
+for server in `combine FTP_SERVERS $i`
 do
-	# Data channel creation for outgoing FTP request, normal mode
-	ipchains -A ionftp -p tcp -s $server 20 -d $self 1024: -j ACCEPT
-	# Data channel responses for outgoing FTP request, normal mode
-	ipchains -A oonftp -p tcp -s $self 1024: -d $server 20 ! -y -j ACCEPT
+	tcp ionftp$i oonftp$i $server 20 $self $normal_ports
 done
-
-# Permit FTP connections to all external hosts if no servers were specified.
-
-if [ -z "$FTP_SERVERS" ]
-then
-	# Data channel creation for outgoing FTP request, normal mode
-	ipchains -A ionftp -p tcp -s $any 20 -d $self 1024: -j ACCEPT
-	# Data channel responses for outgoing FTP request, normal mode
-	ipchains -A oonftp -p tcp -s $self 1024: -d $any 20 ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing Passive FTP
@@ -529,48 +1097,34 @@ fi
 # Note: This is an extremely bad idea if used for non-anonymous FTP access
 # since real user names, passwords and private files will be transmitted
 # over the net in plaintext. Use $EVIL_FTP_SERVERS to deny such uses and
-# require that users use sftp instead.
+# require that users use rsync over ssh instead.
 #
 
-ipchains -N oopftp # outgoing packets for outgoing FTP (passive mode)
-ipchains -N iopftp # incoming packets for outgoing FTP (passive mode)
+chains opftp $i # outgoing and incoming rule chains for outgoing FTP (passive mode)
 
 # Include common outgoing FTP connection rules
 
-ipchains -A oopftp -j ooftp
-ipchains -A iopftp -j ioftp
+ipchains -A oopftp$i -j ooftp$i
+ipchains -A iopftp$i -j ioftp$i
 
 # Deny FTP connections to specific external hosts where the user name and
 # password required to connect or the contents of the files is too sensitive
-# to be transmitted over the net in plaintext.
+# to be transmitted over the net in plaintext
 
-for server in $EVIL_FTP_SERVERS
+for server in `combine EVIL_FTP_SERVERS $i`
 do
-	# Reject data channel creation for outgoing FTP request, passive mode
-	ipchains -A oopftp -p tcp -s $self 1024: -d $server 1024: -j REJECT $LOG
-	# Deny data channel responses for outgoing FTP request, passive mode
-	ipchains -A iopftp -p tcp -s $server 1024: -d $self 1024: ! -y -j DENY $LOG
+	tcpmno oopftp$i iopftp$i $self $normal_ports $server 1024: REJECT DENY
 done
 
-# Permit Passive FTP connections to specific external hosts.
+# Permit Passive FTP connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $FTP_SERVERS
+default_to_any FTP_SERVERS $i
+
+for server in `combine FTP_SERVERS $i`
 do
-	# Data channel creation for outgoing FTP request, passive mode
-	ipchains -A oopftp -p tcp -s $self 1024: -d $server 1024: -j ACCEPT
-	# Data channel responses for outgoing FTP request, passive mode
-	ipchains -A iopftp -p tcp -s $server 1024: -d $self 1024: ! -y -j ACCEPT
+	tcpm oopftp$i iopftp$i $self $normal_ports $server 1024:
 done
-
-# Permit FTP connections to all external hosts if no servers were specified.
-
-if [ -z "$FTP_SERVERS" ]
-then
-	# Data channel creation for outgoing FTP request, passive mode
-	ipchains -A oopftp -p tcp -s $self 1024: -d $any 1024: -j ACCEPT
-	# Data channel responses for outgoing FTP request, passive mode
-	ipchains -A iopftp -p tcp -s $any 1024: -d $self 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Incoming TELNET
@@ -580,17 +1134,13 @@ fi
 # users use ssh instead.
 #
 
-ipchains -N iitelnet # incoming packets for incoming TELNET
-ipchains -N oitelnet # outgoing packets for incoming TELNET
+chains iteln $i # incoming and outgoing rule chains for incoming TELNET
 
 # Permit TELNET connections from specific external hosts
 
-for client in $TELNET_CLIENTS
+for client in `combine TELNET_CLIENTS $i`
 do
-	# Incoming session, client to server
-	ipchains -A iitelnet -p tcp -s $client 1024: -d $self 23 -j ACCEPT
-	# Incoming session, server to client
-	ipchains -A oitelnet -p tcp -s $self 23 -d $client 1024: ! -y -j ACCEPT
+	tcp iiteln$i oiteln$i $client 1024: $self 23
 done
 
 ##############################################################################
@@ -601,56 +1151,22 @@ done
 # users use ssh instead.
 #
 
-ipchains -N ootelnet # outgoing packets for outgoing TELNET
-ipchains -N iotelnet # incoming packets for outgoing TELNET
+chains oteln $i # outgoing and incoming rule chains for outgoing TELNET
+
+# Deny TELNET connections to specific external hosts where the user name and
+# password required to connect or the contents of session is too sensitive to
+# be transmitted over the net in plaintext
+
+for server in `combine EVIL_TELNET_SERVERS $i`
+do
+	tcpmno ooteln$i ioteln$i $self $normal_ports $server 23 REJECT DENY
+done
 
 # Permit TELNET connections to specific external hosts
 
-for server in $TELNET_SERVERS
+for server in `combine TELNET_SERVERS $i`
 do
-	# Outgoing session, client to server
-	ipchains -A ootelnet -p tcp -s $self 1024: -d $client 23 -j ACCEPT
-	# Outgoing session, server to client
-	ipchains -A iotelnet -p tcp -s $client 23: -d $self 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Incoming NNTP
-#
-# Note: Don't run an NNTP server on a bastion host. Run it on an internal
-# host and only permit connections from trusted external NNTP servers.
-#
-
-ipchains -N iinntp # incoming packets for incoming NNTP
-ipchains -N oinntp # outgoing packets for incoming NNTP
-
-# Permit NNTP conections from specific external hosts.
-
-for server in $NNTP_CLIENTS
-do
-	# Incoming NNTP connection from the specified host
-	ipchains -A iinntp -p tcp -s $server 1024: -d $self 119 -j ACCEPT
-	# Responses from the NNTP server
-	ipchains -A oinntp -p tcp -s $self 119 -d $server 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Outgoing NNTP
-#
-# Note: Only permit NNTP connections to trusted external NNTP servers.
-#
-
-ipchains -N oonntp # outgoing packets for outgoing NNTP
-ipchains -N ionntp # incoming packets for outgoing NNTP
-
-# Permit NNTP connections to specific external hosts.
-
-for server in $NNTP_SERVERS
-do
-	# Outgoing NNTP connection to the specified host
-	ipchains -A oonntp -p tcp -s $self 1024: -d $server 119 -j ACCEPT
-	# Responses from the NNTP server
-	ipchains -A ionntp -p tcp -s $server 119 -d $self 1024: ! -y -j ACCEPT
+	tcpm ooteln$i ioteln$i $self $normal_ports $server 23
 done
 
 ##############################################################################
@@ -659,17 +1175,13 @@ done
 # Note: Only run public HTTP servers on bastion hosts.
 #
 
-ipchains -N iihttp # incoming packets for incoming HTTP
-ipchains -N oihttp # outgoing packets for incoming HTTP
+chains ihttp $i # incoming and outgoing rule chains for incoming HTTP
 
-# Permit HTTP connections from all hosts.
+# Permit HTTP connections from all hosts
 
 for port in $INTERNAL_HTTP_PORTS
 do
-	# Incoming HTTP request
-	ipchains -A iihttp -p tcp -s $any 1024: -d $self $port -j ACCEPT
-	# Response from the HTTP server
-	ipchains -A oihttp -p tcp -s $self $port -d $any 1024: ! -y -j ACCEPT
+	tcp iihttp$i oihttp$i $any 1024: $self $port
 done
 
 ##############################################################################
@@ -683,616 +1195,330 @@ done
 # bastion host anyway.
 #
 
-ipchains -N oohttp # outgoing packets for outgoing HTTP
-ipchains -N iohttp # incoming packets for outgoing HTTP
+chains ohttp $i # outgoing and incoming rule chains for outgoing HTTP
 
-# Permit HTTP connections to limited ports on all hosts.
+# Permit HTTP connections to limited ports on all hosts
+# If no ports are specified, permit all ports
+
+[ -z "$EXTERNAL_HTTP_PORTS" ] && EXTERNAL_HTTP_PORTS=":"
 
 for port in $EXTERNAL_HTTP_PORTS
 do
-	# Outgoing HTTP request
-	ipchains -A oohttp -p tcp -s $self 1024: -d $any $port -j ACCEPT
-	# Response from the HTTP server
-	ipchains -A iohttp -p tcp -s $any $port -d $self 1024: ! -y -j ACCEPT
-done
-
-# Permit HTTP connections to all ports on all hosts in no ports were specified.
-
-if [ -z "$EXTERNAL_HTTP_PORTS" ]
-then
-	# Outgoing HTTP request
-	ipchains -A oohttp -p tcp -s $self 1024: -d $any -j ACCEPT
-	# Response from HTTP server
-	ipchains -A iohttp -p tcp -s $any -d $self 1024: ! -y -j ACCEPT
-fi
-
-##############################################################################
-# Incoming GOPHER
-#
-# Note: Don't use this. It's for GOPHER servers. I'm just being silly.
-# If you must run a public GOPHER server, run it on a bastion host.
-#
-
-ipchains -N iigopher # incoming packets for incoming GOPHER
-ipchains -N oigopher # outgoing packets for incoming GOPHER
-
-# Permit GOPHER connections from all hosts.
-
-for port in $INTERNAL_GOPHER_PORTS
-do
-	# Incoming GOPHER request
-	ipchains -A iigopher -p tcp -s $any 1024: -d $self $port -j ACCEPT
-	# Response from the GOPHER server
-	ipchains -A oigopher -p tcp -s $self $port -d $any 1024: ! -y -j ACCEPT
+	tcpm oohttp$i iohttp$i $self $normal_ports $any $port
 done
 
 ##############################################################################
-# Outgoing GOPHER
+# Incoming HTTPS
 #
-# Note: Don't use this. Use an HTTP-GOPHER gateway.
+# Note: Only run public HTTPS servers on bastion hosts.
 #
 
-ipchains -N oogopher # outgoing packets for outgoing GOPHER
-ipchains -N iogopher # incoming packets for outgoing GOPHER
+chains ihttps $i # incoming and outgoing rule chains for incoming HTTPS
 
-# Permit GOPHER connections to limited ports on all hosts.
+# Permit HTTPS connections from all hosts
 
-for port in $EXTERNAL_GOPHER_PORTS
+for port in $INTERNAL_HTTPS_PORTS
 do
-	# Outgoing GOPHER request
-	ipchains -A oogopher -p tcp -s $self 1024: -d $any $port -j ACCEPT
-	# Response from the GOPHER server
-	ipchains -A iogopher -p tcp -s $any $port -d $self 1024: ! -y -j ACCEPT
-done
-
-# Permit GOPHER connections to all ports on all hosts if no ports were specified.
-
-if [ -z "$EXTERNAL_GOPHER_PORTS" ]
-then
-	# Outgoing GOPHER request
-	ipchains -A oogopher -p tcp -s $self 1024: -d $any -j ACCEPT
-	# Response from GOPHER server
-	ipchains -A iogopher -p tcp -s $any -d $self 1024: ! -y -j ACCEPT
-fi
-
-##############################################################################
-# Incoming WAIS
-#
-# Note: Don't use this. It's for WAIS servers. I'm just being silly.
-# If you must run a public WAIS server, run it on a bastion host.
-#
-
-ipchains -N iiwais # incoming packets for incoming WAIS
-ipchains -N oiwais # outgoing packets for incoming WAIS
-
-# Permit WAIS connections from all hosts
-
-for port in $INTERNAL_WAIS_PORTS
-do
-	# Incoming WAIS request
-	ipchains -A iiwais -p tcp -s $any 1024: -d $self $port -j ACCEPT
-	# Response from the WAIS server
-	ipchains -A oiwais -p tcp -s $self $port -d $any 1024: ! -y -j ACCEPT
+	tcp iihttps$i oihttps$i $any 1024: $self $port
 done
 
 ##############################################################################
-# Outgoing WAIS
+# Outgoing HTTPS
 #
-# Note: Don't use this. Use an HTTP-WAIS gateway instead.
+# Note: You can limit HTTPS connections to certain ports on external hosts
+# with $EXTERNAL_HTTPS_PORTS. By default, this is "443". It is safe to make
+# $EXTERNAL_HTTPS_PORTS empty, permitting local clients to connect to any
+# port (potentially an HTTPS server) on any host and receive the responses
+# but you'd be better off using a caching HTTPS proxy on a bastion host anyway.
 #
 
-ipchains -N oowais # outgoing packets for outgoing WAIS
-ipchains -N iowais # incoming packets for outgoing WAIS
+chains ohttps $i # outgoing and incoming rule chains for outgoing HTTPS
 
-# Permit WAIS connections to limited ports on all hosts.
+# Permit HTTPS connections to limited ports on all hosts
+# If no ports are specified, permit all ports
 
-for port in $EXTERNAL_WAIS_PORTS
+[ -z "$EXTERNAL_HTTPS_PORTS" ] && EXTERNAL_HTTPS_PORTS=":"
+
+for port in $EXTERNAL_HTTPS_PORTS
 do
-	# Outgoing WAIS request
-	ipchains -A oowais -p tcp -s $self 1024: -d $any $port -j ACCEPT
-	# Response from the WAIS server
-	ipchains -A iowais -p tcp -s $any $port -d $self 1024: ! -y -j ACCEPT
-done
-
-# Permit WAIS connections to all ports on all hosts if no ports were specified.
-
-if [ -z "$EXTERNAL_WAIS_PORTS" ]
-then
-	# Outgoing WAIS request
-	ipchains -A oowais -p tcp -s $self 1024: -d $any -j ACCEPT
-	# Response from WAIS server
-	ipchains -A iowais -p tcp -s $any -d $self 1024: ! -y -j ACCEPT
-fi
-
-##############################################################################
-# Outgoing ARCHIE
-#
-# Note: Don't use this. Use an HTTP-ARCHIE gateway instead. If you must
-# permit this, restrict it to the well known ARCHIE servers.
-#
-
-ipchains -N ooarchie # outgoing packets for outgoing ARCHIE
-ipchains -N ioarchie # incoming packets for outgoing ARCHIE
-
-# Permit ARCHIE connections to specific external hosts.
-
-for server in $ARCHIE_SERVERS
-do
-	# Outgoing ARCHIE request to the specified host
-	ipchains -A ooarchie -p udp -s $self 1024: -d $server 1525 -j ACCEPT
-	# Response from the ARCHIE server
-	ipchains -A ioarchie -p udp -s $server 1525 -d $self 1024: -j ACCEPT
+	tcpm oohttps$i iohttps$i $self $normal_ports $any $port
 done
 
 ##############################################################################
-# Incoming FINGER
+# Incoming HTTP PROXY
 #
-# Note: Only run a public (secure) FINGER server on a bastion host.
+# Note: You need this if your web proxy is internal and it has external
+# clients (don't do that), or if this host is a bastion and the interface
+# being filtered connects to the internal network.
 #
 
-ipchains -N iifinger # incoming packets for incoming FINGER
-ipchains -N oifinger # outgoing packets for incoming FINGER
+chains iproxy $i # incoming and outgoing rule chains for incoming HTTP PROXY
 
-# Permit FINGER connections from specific external hosts.
+# Permit HTTP PROXY connections to limited ports on specified hosts
 
-for client in $FINGER_CLIENTS
+for client in `combine INTERNAL_HTTP_PROXY_CLIENTS $i`
 do
-	# Incoming query, client to server
-	ipchains -A iifinger -p tcp -s $client 1024: -d $self 79 -j ACCEPT
-	# Response from FINGER server
-	ipchains -A oifinger -p tcp -s $self 79 -d $client 1024: ! -y -j ACCEPT
+	for port in $INTERNAL_HTTP_PROXY_PORTS
+	do
+		tcp iiproxy$i oiproxy$i $client 1024: $self $port
+	done
 done
-
-# Permit FINGER connections from all external hosts if no clients were specified.
-
-if [ -z "$FINGER_CLIENTS" ]
-then
-	# Incoming query, client to server
-	ipchains -A iifinger -p tcp -s $any 1024: -d $self 79 -j ACCEPT
-	# Response from FINGER server
-	ipchains -A oifinger -p tcp -s $self 79 -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
-# Outgoing FINGER
+# Outgoing HTTP PROXY
 #
-# Note: Make sure your finger clients can handle non-printable characters in
-# FINGER output otherwise programmable terminals may get themselves
-# reprogrammed.
+# Note: You need this if your web proxy is running on a bastion host.
 #
 
-ipchains -N oofinger # outgoing packets for outgoing FINGER
-ipchains -N iofinger # incoming packets for outgoing FINGER
+chains oproxy $i # outgoing and incoming rule chains for outgoing HTTP PROXY
 
-# Permit FINGER connections to specific external hosts.
+# Permit HTTP PROXY connections to limited ports on specified hosts
 
-for server in $FINGER_SERVERS
+for server in `combine EXTERNAL_HTTP_PROXY_SERVERS $i`
 do
-	# Outgoing query, client to server
-	ipchains -A oofinger -p tcp -s $self 1024: -d $server 79 -j ACCEPT
-	# Response from FINGER server
-	ipchains -A iofinger -p tcp -s $server 79 -d $self 1024: ! -y -j ACCEPT
+	for port in $EXTERNAL_HTTP_PROXY_PORTS
+	do
+		tcpm ooproxy$i ioproxy$i $self $normal_ports $server $port
+	done
 done
-
-# Permit FINGER connections to all external hosts if no servers were specified.
-
-if [ -z "$FINGER_SERVERS" ]
-then
-	# Outgoing query, client to server
-	ipchains -A oofinger -p tcp -s $self 1024: -d $any 79 -j ACCEPT
-	# Response from FINGER server
-	ipchains -A iofinger -p tcp -s $any 79 -d $self 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
-# Outgoing WHOIS
+# Incoming NNTP
 #
-# Note: Restrict WHOIS connections to the well known WHOIS servers.
-# Do not run a WHOIS server.
+# Note: Don't run an NNTP server on a bastion host. Run it on an internal
+# host and only permit connections from trusted external NNTP servers.
 #
 
-ipchains -N oowhois # outgoing packets for outgoing WHOIS
-ipchains -N iowhois # incoming packets for outgoing WHOIS
+chains inntp $i # incoming and outgoing rule chains for incoming NNTP
 
-# Permit WHOIS connections to specific external hosts.
+# Permit NNTP conections from specific external hosts
 
-for server in $WHOIS_SERVERS
+for client in `combine NNTP_CLIENTS $i`
 do
-	# Outgoing query, client to server
-	ipchains -A oowhois -p tcp -s $self 1024: -d $server 43 -j ACCEPT
-	# Response from WHOIS server
-	ipchains -A iowhois -p tcp -s $server 43 -d $self 1024: ! -y -j ACCEPT
+	tcp iinntp$i oinntp$i $client 1024: $self 119
 done
 
-# Permit WHOIS connections to all external hosts if no servers were specified.
+##############################################################################
+# Outgoing NNTP
+#
+# Note: Only permit NNTP connections to trusted external NNTP servers.
+#
 
-if [ -z "$WHOIS_SERVERS" ]
-then
-	# Outgoing query, client to server
-	ipchains -A oowhois -p tcp -s $self 1024: -d $any 43 -j ACCEPT
-	# Response from WHOIS server
-	ipchains -A iowhois -p tcp -s $any 43 -d $self 1024: ! -y -j ACCEPT
-fi
+chains onntp $i # outgoing and incoming rule chains for outgoing NNTP
+
+# Permit NNTP connections to specific external hosts
+
+for server in `combine NNTP_SERVERS $i`
+do
+	tcpm oonntp$i ionntp$i $self $normal_ports $server 119
+done
+
+##############################################################################
+# Incoming RSYNC
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+chains irsync $i # incoming and outgoing rule chains for incoming RSYNC
+
+# Permit RSYNC connections from specific external hosts
+
+for client in `combine RSYNC_CLIENTS $i`
+do
+	tcp iirsync$i oirsync$i $client 1024: $self 873
+done
+
+##############################################################################
+# Outgoing RSYNC
+#
+# Note: Don't allow this over a firewall. Use rsync over ssh instead.
+#
+
+chains orsync $i # outgoing and incoming rule chains for outgoing RSYNC
+
+# Permit RSYNC connections to specific external hosts
+
+for server in `combine RSYNC_SERVERS $i`
+do
+	tcpm oorsync$i iorsync$i $self $normal_ports $server 873
+done
+
+##############################################################################
+# Incoming SMB
+#
+# Note: This is probably a bad idea over a firewall.
+#
+
+chains ismb $i # incoming and outgoing rule chains for incoming SMB
+
+# Permit SMB connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any SMB_CLIENTS $i
+
+for client in `combine SMB_CLIENTS $i`
+do
+	udp iismb$i oismb$i $client 137 $self 137
+	udp iismb$i oismb$i $client 138 $self 138
+	tcp iismb$i oismb$i $client 1024: $self 139
+done
+
+##############################################################################
+# Outgoing SMB
+#
+# Note: This is probably a bad idea over a firewall.
+#
+
+chains osmb $i # outgoing and incoming rule chains for outgoing SMB
+
+# Permit SMB connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any SMB_SERVERS $i
+
+for server in `combine SMB_SERVERS $i`
+do
+	udp oosmb$i iosmb$i $self 137 $server 137
+	udpm oosmb$i iosmb$i $self 138 $server 138
+	tcpm oosmb$i iosmb$i $self $normal_ports $server 139
+done
 
 ##############################################################################
 # Incoming IRC
 #
-# Note: If you run an internal IRC server, make sure it can't communicate
-# with external IRC servers or it will attach itself to the IRC spanning
-# tree through which this host can be attacked. Also, DCC connections
-# between IRC clients isn't supported because it's a very bad idea across a
-# firewall.
+# Note: If this host run an internal IRC server, make sure it can't
+# communicate with external IRC servers or it will attach itself to the IRC
+# spanning tree through which this host can be attacked. Also, DCC
+# connections between IRC clients isn't supported because it's a very bad
+# idea across a firewall.
 #
 
-ipchains -N iiirc # incoming packets for incoming IRC
-ipchains -N oiirc # outgoing packets for incoming IRC
+chains iirc $i # incoming and outgoing rule chains for incoming IRC
 
-# Permit IRC connections from specific external hosts.
+# Permit IRC connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $IRC_CLIENTS
+default_to_any IRC_CLIENTS $i
+
+for client in `combine IRC_CLIENTS $i`
 do
-	# Incoming IRC connection from the specified host
-	ipchains -A iiirc -p tcp -s $client 1024: -d $self 6667 -j ACCEPT
-	# Response from the IRC server
-	ipchains -A oiirc -p tcp -s $self 6667 -d $client 1024: ! -y -j ACCEPT
+	tcp iiirc$i oiirc$i $client 1024: $self 6667
 done
-
-# Permit IRC connection from all external hosts if no clients were specified.
-
-if [ -z "$IRC_CLIENTS" ]
-then
-	# Incoming IRC connection
-	ipchains -A iiirc -p tcp -s $any 1024: -d $self 6667 -j ACCEPT
-	# Response from the IRC server
-	ipchains -A oiirc -p tcp -s $self 6667 -d $any 1024: ! -y -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing IRC
 #
 # Note: IRC clients can be dangerous and you shouldn't allow IRC across a
 # firewall. It's best to run them on a victim host. Also, DCC connections
-# between IRC clients isn't supproted because it's a very bad idea across a
+# between IRC clients isn't supported because it's a very bad idea across a
 # firewall.
 #
 
-ipchains -N ooirc # outgoing packets for outgoing IRC
-ipchains -N ioirc # incoming packets for outgoing IRC
+chains oirc $i # outgoing and incoming rule chains for outgoing IRC
 
-# Permit IRC connections to specific external hosts.
+# Permit IRC connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $IRC_SERVERS
+default_to_any IRC_SERVERS $i
+
+for server in `combine IRC_SERVERS $i`
 do
-	# Outgoing IRC connection to the specified host
-	ipchains -A ooirc -p tcp -s $self 1024: -d $server 6667 -j ACCEPT
-	# Response from the IRC server
-	ipchains -A ioirc -p tcp -s $server 6667 -d $self 1024: ! -y -j ACCEPT
-done
-
-# Permit IRC connections to all external hosts if no servers were specified.
-
-if [ -z "$IRC_SERVERS" ]
-then
-	# Outgoing IRC connection
-	ipchains -A ooirc -p tcp -s $self 1024: -d $any 6667 -j ACCEPT
-	# Response from the IRC server
-	ipchains -A ioirc -p tcp -s $any 6667 -d $self 1024: ! -y -j ACCEPT
-fi
-
-##############################################################################
-# Incoming Client DNS
-#
-# Note: You only need this if you run a DNS server that external hosts can
-# access.
-#
-
-ipchains -N iicdns # incoming packets for incoming Client DNS
-ipchains -N oicdns # outgoing packets for incoming Client DNS
-
-# Permit Client DNS connections from specific external hosts.
-
-for client in $DNS_CLIENTS
-do
-	# Incoming DNS query (client to server)
-	ipchains -A iicdns -p udp -s $client 1024: -d $self 53 -j ACCEPT
-	# Answer to incoming DNS query (server to client)
-	ipchains -A oicdns -p udp -s $self 53 -d $client 1024: -j ACCEPT
-	# Incoming DNS query (client to server)
-	ipchains -A iicdns -p tcp -s $client 1024: -d $self 53 -j ACCEPT
-	# Answer to incoming DNS query (server to client)
-	ipchains -A oicdns -p tcp -s $self 53 -d $client 1024: ! -y -j ACCEPT
-done
-
-# Permit Client DNS connections from all external hosts if no clients were specified.
-
-if [ -z "$DNS_CLIENTS" ]
-then
-	# Incoming DNS query (client to server)
-	ipchains -A iicdns -p udp -s $any 1024: -d $self 53 -j ACCEPT
-	# Answer to incoming DNS query (server to client)
-	ipchains -A oicdns -p udp -s $self 53 -d $any 1024: -j ACCEPT
-	# Incoming DNS query (client to server)
-	ipchains -A iicdns -p tcp -s $any 1024: -d $self 53 -j ACCEPT
-	# Answer to incoming DNS query (server to client)
-	ipchains -A oicdns -p tcp -s $self 53 -d $any 1024: ! -y -j ACCEPT
-fi
-
-##############################################################################
-# Outgoing Client DNS
-#
-# Note: You need this if you don't run an internal DNS server.
-#
-
-ipchains -N oocdns # outgoing packets for outgoing Client DNS
-ipchains -N iocdns # incoming packets for outgoing Client DNS
-
-# Permit DNS requests to specific external hosts.
-
-for server in $DNS_SERVERS
-do
-	# Outgoing DNS query (client to server)
-	ipchains -A oocdns -p udp -s $self 1024: -d $server 53 -j ACCEPT
-	# Answer to outgoing DNS query (server to client)
-	ipchains -A iocdns -p udp -s $server 53 -d $self 1024: -j ACCEPT
-	# Outgoing DNS query (client to server)
-	ipchains -A oocdns -p tcp -s $self 1024: -d $server 53 -j ACCEPT
-	# Answer to outgoing DNS query (server to client)
-	ipchains -A iocdns -p tcp -s $server 53 -d $self 1024: ! -y -j ACCEPT
+	tcpm ooirc$i ioirc$i $self $normal_ports $server 6667
 done
 
 ##############################################################################
-# Server DNS
+# Incoming ICQ
+#
+# Note: Don't allow this through a firewall. ICQ is dangerous. It leaves
+# 2001 tcp ports open. Run ICQ servers on an external victim host.
 #
 
-ipchains -N isdns # incoming packets for Server DNS
-ipchains -N osdns # outgoing packets for Server DNS
+chains iicq $i # incoming and outgoing rule chains for incoming ICQ
 
-# Permit DNS requests between specific hosts.
+# Permit ICQ connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for server in $DNS_SERVER
+default_to_any ICQ_CLIENTS $i
+
+for client in `combine ICQ_CLIENTS $i`
 do
-	# Query or response between two DNS servers
-	ipchains -A isdns -p udp -s $server 53 -d $self 53 -j ACCEPT
-	# Query or response between two DNS servers
-	ipchains -A osdns -p udp -s $self 53 -d $server 53 -j ACCEPT
+	tcp iiicq$i oiicq$i $client 1024: $self 2000:4000
+	udp iiicq$i oiicq$i $client 1024: $self 4000
 done
 
 ##############################################################################
-# Incoming Server DNS
+# Outgoing ICQ
 #
-# Note: Only use this if this host runs an internal DNS servers whose
-# secondary is external (e.g. on a bastion host). Restrict this to
-# connections from the secondary DNS server.
+# Note: Don't allow this through a firewall. ICQ is dangerous. Run ICQ
+# clients on an external victim host.
 #
 
-ipchains -N iisdns # incoming packets for incoming Server DNS
-ipchains -N oisdns # outgoing packets for incoming Server DNS
+chains oicq $i # outgoing and incoming rule chains for outgoing ICQ
 
-# Include common Server DNS request rules
+# Permit ICQ connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-ipchains -A iisdns -j isdns
-ipchains -A oisdns -j osdns
+default_to_any ICQ_SERVERS $i
 
-# Permit Server DNS connections from specific external hosts.
-
-for server in $DNS_SERVERS
+for server in `combine ICQ_SERVERS $i`
 do
-	# Incoming DNS query or zone transfer request (server to server)
-	ipchains -A iisdns -p tcp -s $server 1024: -d $self 53 -j ACCEPT
-	# Response to incoming DNS query or zone transfer request (server to server)
-	ipchains -A oisdns -p tcp -s $self 53 -d $server 1024: ! -y -j ACCEPT
+	tcpm ooicq$i ioicq$i $self $normal_ports $server 2000:4000
+	udpm ooicq$i ioicq$i $server 4000 $self $normal_ports
 done
 
 ##############################################################################
-# Outgoing Server DNS
+# Incoming RealAudio/QuickTime
 #
-# Note: Only use this if this host runs a secondary DNS server for an external
-# primary. Restrict this to connections to the primary server.
+# Note: You don't need this. This is a bad idea since it leaves 30 udp
+# ports open.
 #
 
-ipchains -N oosdns # outgoing packets for outgoing Server DNS
-ipchains -N iosdns # incoming packets for outgoing Server DNS
+chains ireal $i # incoming and outgoing rule chains for incoming RealAudio/QuickTime
 
-# Include common Server DNS request rules
+# Permit RealAudio connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-ipchains -A oosdns -j osdns
-ipchains -A iosdns -j isdns
+default_to_any REALAUDIO_CLIENTS $i
 
-# Permit Server DNS requests to specific external hosts.
-
-for server in $DNS_SERVERS
+for client in `combine REALAUDIO_CLIENTS $i`
 do
-	# Outgoing DNS query or zone transfer request (server to server)
-	ipchains -A oosdns -p tcp -s $self 53 -d $server 53 -j ACCEPT
-	# Response to outgoing DNS query or zone transfer request (server to server)
-	ipchains -A iosdns -p tcp -s $server 53 -d $self 53 ! -y -j ACCEPT
+	tcp iireal$i oireal$i $client 1024: $self 554
+	tcp iireal$i oireal$i $client 1024: $self 7070:7071
+	udp iireal$i oireal$i $client 6970:6999 $self $normal_ports
 done
 
 ##############################################################################
-# Incoming SYSLOG
+# Outgoing RealAudio/QuickTime
 #
-# Note: Only use this to collect syslog messages from a bastion host.
+# Note: You may need special kernel modules for this. This is a bad idea
+# since it leaves 30 udp ports open.
 #
 
-ipchains -N isyslog # incoming SYSLOG
+chains oreal $i # outgoing and incoming rule chains for outgoing RealAudio/QuickTime
 
-# Permit SYSLOG packets from specific external hosts.
+# Permit RealAudio connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for client in $SYSLOG_CLIENTS
+default_to_any REALAUDIO_SERVERS $i
+
+for server in `combine REALAUDIO_SERVERS $i`
 do
-	# Incoming SYSLOG contact from the specified host
-	ipchains -A isyslog -p udp -s $client -d $self 514 -j ACCEPT
-done
-
-##############################################################################
-# Outgoing SYSLOG
-#
-# Note: I can't think of any use for this.
-#
-
-ipchains -N osyslog # outgoing SYSLOG
-
-# Permit SYSLOG packets to specific external hosts.
-
-for server in $SYSLOG_SERVERS
-do
-	# Outgoing SYSLOG contact to the specified host
-	ipchains -A isyslog -p udp -s $self -d $server 514 -j ACCEPT
-done
-
-##############################################################################
-# Incoming SNMP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N iisnmp # incoming packets for incoming SNMP
-ipchains -N oisnmp # outgoing packets for incoming SNMP
-
-# Permit SNMP connections from specific external hosts.
-
-for client in $SNMP_CLIENTS
-do
-	# External management station (client) contacting internal SNMP network device (server)
-	ipchains -A iisnmp -p udp -s $client 1024: -d $self 161 -j ACCEPT
-	# Internal SNMP network device (server) replying to external management station (client)
-	ipchains -A oisnmp -p udp -s $self 161 -s $client 1024: -j ACCEPT
-
-	# External management station (client) contacting internal SNMP network device (server)
-	ipchains -A iisnmp -p tcp -s $client 1024: -d $self 161 -j ACCEPT
-	# Internal SNMP network device (server) replying to external management station (client)
-	ipchains -A oisnmp -p tcp -s $self 161 -s $client 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Outgoing SNMP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N oosnmp # outgoing packets for outgoing SNMP
-ipchains -N iosnmp # incoming packets for outgoing SNMP
-
-# Permit SNMP connections to specific external hosts.
-
-for server in $SNMP_SERVERS
-do
-	# Internal management station (client) contacting external SNMP network device (server)
-	ipchains -A oosnmp -p udp -s $self 1024: -d $server 161 -j ACCEPT
-	# External SNMP network device (server) replying to internal management station (client)
-	ipchains -A iosnmp -p udp -s $server 161 -s $self 1024: -j ACCEPT
-
-	# Internal management station (client) contacting external SNMP network device (server)
-	ipchains -A oosnmp -p tcp -s $self 1024: -d $server 161 -j ACCEPT
-	# External SNMP network device (server) replying to internal management station (client)
-	ipchains -A iosnmp -p tcp -s $server 161 -s $self 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Incoming SNMP TRAP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N iisnmpt # incoming packets for incoming SNMP TRAP
-ipchains -N oisnmpt # outgoing packets for incoming SNMP TRAP
-
-# Permit SNMP trap connections from specific external hosts.
-
-for client in $SNMP_TRAP_CLIENTS
-do
-	# External management station (client) contacting internal SNMP network device (trap server)
-	ipchains -A iisnmpt -p udp -s $client 1024: -d $self 162 -j ACCEPT
-	# Internal SNMP network device (trap server) replying to external management station (client)
-	ipchains -A oisnmpt -p udp -s $self 162 -s $client 1024: -j ACCEPT
-
-	# External management station (client) contacting internal SNMP network device (trap server)
-	ipchains -A iisnmpt -p tcp -s $client 1024: -d $self 162 -j ACCEPT
-	# Internal SNMP network device (trap server) replying to external management station (client)
-	ipchains -A oisnmpt -p tcp -s $self 162 -s $client 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Outgoing SNMP TRAP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N oosnmpt # outgoing packets for outgoing SNMP TRAP
-ipchains -N iosnmpt # incoming packets for outgoing SNMP TRAP
-
-# Permit SNMP trap connections to specific external hosts.
-
-for server in $SNMP_TRAP_SERVERS
-do
-	# Internal management station (client) contacting external SNMP network device (trap server)
-	ipchains -A oosnmpt -p udp -s $self 1024: -d $server 162 -j ACCEPT
-	# External SNMP network device (trap server) replying to internal management station (client)
-	ipchains -A iosnmpt -p udp -s $server 162 -s $self 1024: -j ACCEPT
-
-	# Internal management station (client) contacting external SNMP network device (trap server)
-	ipchains -A oosnmpt -p tcp -s $self 1024: -d $server 162 -j ACCEPT
-	# External SNMP network device (trap server) replying to internal management station (client)
-	ipchains -A iosnmpt -p tcp -s $server 162 -s $self 1024: ! -y -j ACCEPT
-done
-
-##############################################################################
-# Incoming RIP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N iirip # incoming packets for incoming RIP
-ipchains -N oirip # outgoing packets for incoming RIP
-
-# Permit RIP requests from specific external hosts.
-
-for client in $RIP_CLIENTS
-do
-	# Incoming RIP broadcast from specified host (server)
-	ipchains -A iirip -p udp -s $client 520 -d $self 520 -j ACCEPT
-	# Incoming RIP request from specified host (client)
-	ipchains -A iirip -p udp -s $client 1024: -d $self 520 -j ACCEPT
-	# Response from RIP server
-	ipchains -A oirip -p udp -s $self 520 -d $client 1024: -j ACCEPT
-done
-
-##############################################################################
-# Outgoing RIP
-#
-# Note: You probably don't want to permit this across a firewall.
-#
-
-ipchains -N oorip # outgoing packets for outgoing RIP
-ipchains -N iorip # incoming packets for outgoing RIP
-
-# Permit RIP requests to specific external hosts.
-
-for server in $RIP_SERVERS
-do
-	# Outgoing RIP broadcast to specified host (server)
-	ipchains -A oorip -p udp -s $self 520 -d $server 520 -j ACCEPT
-	# Outgoing RIP request to specified host (client)
-	ipchains -A oorip -p udp -s $self 1024: -d $server 520 -j ACCEPT
-	# Response from RIP server
-	ipchains -A iorip -p udp -s $server 520 -d $self 1024: -j ACCEPT
+	tcpm ooreal$i ioreal$i $self $normal_ports $server 554
+	tcpm ooreal$i ioreal$i $self $normal_ports $server 7070:7071
+	udpm ooreal$i ioreal$i $self 6970:6999 $server 1024:
 done
 
 ##############################################################################
 # NTP
 #
 
-ipchains -N intp  # incoming packets for NTP
-ipchains -N ontp  # outgoing packets for NTP
+chains ntp $i # incoming and outgoing rule chains for NTP
 
-# Permit queries and responses between specific servers.
+# Permit queries and responses between specific servers
 
-for server in $NTP_SERVERS
+for server in `combine NTP_SERVERS $i`
 do
-	# Query or response between two servers
-	ipchains -A intp -p udp -s $self 123 -d $server 123 -j ACCEPT
-	# Query or response between two servers
-	ipchains -A ontp -p udp -s $server 123 -d $self 123 -j ACCEPT
+	udp ontp$i intp$i $self 123 $server 123
 done
 
 ##############################################################################
@@ -1302,33 +1528,22 @@ done
 # it's an internal host, only permit connections from a proxy DNS server
 # running on a bastion host.
 
-ipchains -N iintp  # incoming packets for incoming NTP
-ipchains -N ointp  # outgoing packets for incoming NTP
+chains intp $i # incoming and outgoing rule chains for incoming NTP
 
-# Include common NTP server rules.
+# Include common NTP server rules
 
-ipchains -A iintp -j intp
-ipchains -A ointp -j ontp
+ipchains -A iintp$i -j intp$i
+ipchains -A ointp$i -j ontp$i
 
-# Permit NTP connections from specific hosts.
+# Permit NTP connections from specific hosts
+# If no clients are specified, permit all hosts
 
-for client in $NTP_CLIENTS
+default_to_any NTP_CLIENTS $i
+
+for client in `combine NTP_CLIENTS $i`
 do
-	# Incoming NTP query
-	ipchains -A iintp -p udp -s $client 1024: -d $self 123 -j ACCEPT
-	# Response from NTP server
-	ipchains -A ointp -p udp -s $self 123 -d $client 1024: -j ACCEPT
+	udp iintp$i ointp$i $client 1024: $self 123
 done
-
-# Permit NTP connections from all hosts if no clients were specified.
-
-if [ -z "$NTP_CLIENTS" ]
-then
-	# Incoming NTP query
-	ipchains -A iintp -p udp -s $any 1024: -d $self 123 -j ACCEPT
-	# Response from NTP server
-	ipchains -A ointp -p udp -s $self 123 -d $any 1024: -j ACCEPT
-fi
 
 ##############################################################################
 # Outgoing NTP
@@ -1337,66 +1552,163 @@ fi
 # servers. Restrict NTP connections to only those NTP servers.
 #
 
-ipchains -N oontp  # outgoing packets for outgoing NTP
-ipchains -N iontp  # incoming packets for outgoing NTP
+chains ontp $i # outgoing and incoming rule chains for outgoing NTP
 
-# Include common NTP server rules.
+# Include common NTP server rules
 
-ipchains -A oontp -j ontp
-ipchains -A iontp -j intp
+ipchains -A oontp$i -j ontp$i
+ipchains -A iontp$i -j intp$i
 
-# Permit NTP connections from specific hosts.
+# Permit NTP connections from specific hosts
 
-for server in $NTP_SERVERS
+for server in `combine NTP_SERVERS $i`
 do
-	# Outgoing NTP query
-	ipchains -A oontp -p udp -s $self 1024: -d $server 123 -j ACCEPT
-	# Response from NTP server
-	ipchains -A iontp -p udp -s $server 123 -d $self 1024: -j ACCEPT
+	udpm oontp$i iontp$i $self $normal_ports $server 123
 done
 
 ##############################################################################
-# Incoming SSH
+# Incoming GOPHER
 #
-# Note: Permit this rather than telnet or ftp.
+# Note: Don't use this. It's for GOPHER servers. I'm just being silly.
+# If you must run a public GOPHER server, run it on a bastion host.
 #
 
-ipchains -N iissh  # incoming packets for incoming SSH
-ipchains -N oissh  # outgoing packets for incoming SSH
+chains igoph $i # incoming and outgoing rule chains for incoming GOPHER
 
-# Permit SSH connections from specific external hosts.
+# Permit GOPHER connections from all hosts
 
-for client in $SSH_CLIENTS
+for port in $INTERNAL_GOPHER_PORTS
 do
-	# Incoming SSH connection
-	ipchains -A iissh -p tcp -s $client -d $self 22 -j ACCEPT
-	# Responses from SSH server
-	ipchains -A oissh -p tcp -s $self 22 -d $client -j ACCEPT
+	tcp iigoph$i oigoph$i $any 1024: $self $port
 done
 
 ##############################################################################
-# Outgoing SSH
+# Outgoing GOPHER
 #
-# Note: Permit this rather than telnet or ftp. Restrict this to specific,
-# trusted hosts. Those hosts will be permitted to connect to any tcp port on
-# this host!
+# Note: Don't use this. Use an HTTP-GOPHER gateway.
 #
 
-ipchains -N oossh  # outgoing packets for outgoing SSH
-ipchains -N iossh  # incoming packets for outgoing SSH
+chains ogoph $i # outgoing and incoming rule chains for outgoing GOPHER
 
-# Permit SSH connections to specific external hosts.
+# Permit GOPHER connections to limited ports on all hosts
+# If no ports are specified, permit all ports
 
-for server in $SSH_SERVERS
+[ -z "$EXTERNAL_GOPHER_PORTS" ] && EXTERNAL_GOPHER_PORTS=":"
+
+for port in $EXTERNAL_GOPHER_PORTS
 do
-	# Outgoing SSH connection
-	ipchains -A oossh -p tcp -s $self -d $server 22 -j ACCEPT
-	# Responses from SSH server
-	ipchains -A iossh -p tcp -s $server 22 -d $self -j ACCEPT # !!!
+	tcpm oogoph$i iogoph$i $self $normal_ports $any $port
 done
 
 ##############################################################################
-# Incoming IDENT
+# Incoming WAIS
+#
+# Note: Don't use this. It's for WAIS servers. I'm just being silly.
+# If you must run a public WAIS server, run it on a bastion host.
+#
+
+chains iwais $i # incoming and outgoing rule chains for incoming WAIS
+
+# Permit WAIS connections from all hosts
+
+for port in $INTERNAL_WAIS_PORTS
+do
+	tcp iiwais$i oiwais$i $any 1024: $self $port
+done
+
+##############################################################################
+# Outgoing WAIS
+#
+# Note: Don't use this. Use an HTTP-WAIS gateway instead.
+#
+
+chains owais $i # outgoing and incoming rule chains for outgoing WAIS
+
+# Permit WAIS connections to limited ports on all hosts
+# If no ports are specified, permit all ports
+
+[ -z "$EXTERNAL_WAIS_PORTS" ] && EXTERNAL_WAIS_PORTS=":"
+
+for port in $EXTERNAL_WAIS_PORTS
+do
+	tcpm oowais$i iowais$i $self $normal_ports $any $port
+done
+
+##############################################################################
+# Outgoing ARCHIE
+#
+# Note: Don't use this. Use an HTTP-ARCHIE gateway instead. If you must
+# permit this, restrict it to the well known ARCHIE servers.
+#
+
+chains oarch $i # outgoing and incoming rule chains for outgoing ARCHIE
+
+# Permit ARCHIE connections to specific external hosts
+
+for server in `combine ARCHIE_SERVERS $i`
+do
+	udpm ooarch$i ioarch$i $self $normal_ports $server 1525
+done
+
+##############################################################################
+# Incoming FINGER
+#
+# Note: Only run a public (secure) FINGER server on a bastion host.
+#
+
+chains ifing $i # incoming and outgoing rule chains for incoming FINGER
+
+# Permit FINGER connections from specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any FINGER_CLIENTS $i
+
+for client in `combine FINGER_CLIENTS $i`
+do
+	tcp iifing$i oifing$i $client 1024: $self 79
+done
+
+##############################################################################
+# Outgoing FINGER
+#
+# Note: Make sure this host's finger clients can handle non-printable
+# characters in finger output otherwise programmable terminals may get
+# themselves reprogrammed.
+#
+
+chains ofing $i # outgoing and incoming rule chains for outgoing FINGER
+
+# Permit FINGER connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any FINGER_SERVERS $i
+
+for server in `combine FINGER_SERVERS $i`
+do
+	tcpm oofing$i iofing$i $self $normal_ports $server 79
+done
+
+##############################################################################
+# Outgoing WHOIS
+#
+# Note: Restrict WHOIS connections to the well known WHOIS servers.
+# Do not run a WHOIS server.
+#
+
+chains owhois $i # outgoing and incoming rule chains for outgoing WHOIS
+
+# Permit WHOIS connections to specific external hosts
+# If no servers are specified, permit all hosts
+
+default_to_any WHOIS_SERVERS $i
+
+for server in `combine WHOIS_SERVERS $i`
+do
+	tcpm oowhois$i iowhois$i $self $normal_ports $server 43
+done
+
+##############################################################################
+# Incoming AUTH
 #
 # Note: Permitting this speeds up outgoing SMTP and FTP communications since
 # some SMTP and FTP servers attempt to identify their clients. However,
@@ -1404,57 +1716,350 @@ done
 # good idea. See man identd for details.
 #
 
-ipchains -N iiident # incoming packets for incoming IDENT
-ipchains -N oiident # outgoing packets for incoming IDENT
+chains iauth $i # incoming and outgoing rule chains for incoming AUTH
 
-# Permit IDENT connections from specific external hosts.
+# Permit AUTH connections from specific external hosts
+# If no clients are specified, permit all hosts
 
-for client in $IDENT_CLIENTS
+default_to_any AUTH_CLIENTS $i
+
+for client in `combine AUTH_CLIENTS $i`
 do
-	# Incoming IDENT connection from the specified host
-	ipchains -A iiident -p tcp -s $client 1024: -d $self 113 -j ACCEPT
-	# Responses from the IDENT server
-	ipchains -A oiident -p tcp -s $self 113 -d $client 1024: ! -y -j ACCEPT
+	tcp iiauth$i oiauth$i $client 1024: $self 113
 done
 
-# Permit IDENT connections from all external hosts if no clients were specified.
-
-if [ -z "$IDENT_CLIENTS" ]
-then
-	# Incoming IDENT connection
-	ipchains -A iiident -p tcp -s $any 1024: -d $self 113 -j ACCEPT
-	# Responses from the IDENT server
-	ipchains -A oiident -p tcp -s $self 113 -d $any 1024: ! -y -j ACCEPT
-fi
-
 ##############################################################################
-# Outgoing IDENT
+# Outgoing AUTH
 #
 # Note: It is safe to permit this except that it may be used by local
 # attackers to gain information about external hosts.
 #
 
-ipchains -N ooident # outgoing packets for outgoing IDENT
-ipchains -N ioident # incoming packets for outgoing IDENT
+chains oauth $i # outgoing and incoming rule chains for outgoing AUTH
 
-# Permit IDENT connections to specific external hosts.
+# Permit AUTH connections to specific external hosts
+# If no servers are specified, permit all hosts
 
-for server in $IDENT_SERVERS
+default_to_any AUTH_SERVERS $i
+
+for server in `combine AUTH_SERVERS $i`
 do
-	# Outgoing IDENT connection to the specified host
-	ipchains -A ooident -p tcp -s $self 1024: -d $server 113 -j ACCEPT
-	# Responses from the IDENT server
-	ipchains -A ioident -p tcp -s $server 113 -d $self 1024: ! -y -j ACCEPT
+	tcpm ooauth$i ioauth$i $self $normal_ports $server 113
 done
 
-# Permit IDENT connections to all external hosts if no servers were specified.
+##############################################################################
+# Incoming SYSLOG
+#
+# Note: Only use this to collect syslog messages from a bastion host.
+#
 
-if [ -z "$IDENT_SERVERS" ]
+chains ilog$i # incoming SYSLOG
+
+# Permit SYSLOG packets from specific external hosts
+
+for client in `combine SYSLOG_CLIENTS $i`
+do
+	udp1 iilog$i $client : $self 514
+done
+
+##############################################################################
+# Outgoing SYSLOG
+#
+# Note: Only use this to send syslog messages from the bastion host to an
+# internal host.
+#
+
+chains olog$i # outgoing SYSLOG
+
+# Permit SYSLOG packets to specific external hosts
+
+for server in `combine SYSLOG_SERVERS $i`
+do
+	udp1 oolog$i $self : $server 514
+done
+
+##############################################################################
+# DHCP Server
+#
+# Note: You probably don't need this.
+#
+
+chains sdhcp $i # incoming and outgoing rule chains for DHCP Server
+
+# Permit DHCP traffic between this host and specific external hosts
+# If no clients are specified, permit all hosts
+
+default_to_any DHCP_CLIENTS $i
+
+for client in `combine DHCP_CLIENTS $i`
+do
+	udp osdhcp$i isdhcp$i $self 67 $client 68
+	udp1 osdhcp$i $self 67 $broadcast_dst 68
+	udp1 isdhcp$i $broadcast_src 68 $self 67
+done
+
+# Outgoing address update
+udp1 osdhcp$i $broadcast_src 67 $broadcast_dst 68
+udp1 isdhcp$i $broadcast_src 68 $broadcast_dst 67
+
+##############################################################################
+# DHCP Client
+#
+# Note: Only allow DHCP traffic to/from trusted external DHCP servers.
+#
+
+chains cdhcp $i # incoming and outgoing rule chains for DHCP Client
+
+# Permit DHCP traffic between this host and specific external hosts
+
+for server in `combine DHCP_SERVERS $i`
+do
+	udp icdhcp$i ocdhcp$i $server 67 $any 68
+	udp1 icdhcp$i $server 67 $broadcast_dst 68
+	udp1 ocdhcp$i $broadcast_src 68 $server 67
+done
+
+if [ -n "`combine DHCP_SERVERS ] $i`" ]
 then
-	# Outgoing IDENT connection
-	ipchains -A ooident -p tcp -s $self 1024: -d $any 113 -j ACCEPT
-	# Responses from the IDENT server
-	ipchains -A ioident -p tcp -s $any 113 -d $self 1024: ! -y -j ACCEPT
+	# Incoming address update
+	udp1 icdhcp$i $broadcast_src 67 $broadcast_dst 68
+	udp1 ocdhcp$i $broadcast_src 68 $broadcast_dst 67
+fi
+
+##############################################################################
+# Incoming SNMP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted SNMP management stations.
+#
+
+chains isnmp $i # incoming and outgoing rule chains for incoming SNMP
+
+# Permit SNMP connections from specific external hosts
+
+for client in `combine SNMP_CLIENTS $i`
+do
+	# External management station (client) contacting internal SNMP network device (server)
+	udp iisnmp$i oisnmp$i $client 1024: $self 161
+	tcp iisnmp$i oisnmp$i $client 1024: $self 161
+done
+
+##############################################################################
+# Outgoing SNMP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted SNMP network devices.
+#
+
+chains osnmp $i # outgoing and incoming rule chains for outgoing SNMP
+
+# Permit SNMP connections to specific external hosts
+
+for server in `combine SNMP_SERVERS $i`
+do
+	# Internal management station (client) contacting external SNMP network device (server)
+	udpm oosnmp$i iosnmp$i $self $normal_ports $server 161
+	tcpm oosnmp$i iosnmp$i $self $normal_ports $server 161
+done
+
+##############################################################################
+# Incoming SNMP TRAP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted SNMP management stations.
+#
+
+chains isnmpt $i # incoming and outgoing rule chains for incoming SNMP TRAP
+
+# Permit SNMP trap connections from specific external hosts
+
+for client in `combine SNMP_TRAP_CLIENTS $i`
+do
+	# External management station (client) contacting internal SNMP network device (trap server)
+	udp iisnmpt$i oisnmpt$i $client 1024: $self 162
+	tcp iisnmpt$i oisnmpt$i $client 1024: $self 162
+done
+
+##############################################################################
+# Outgoing SNMP TRAP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted SNMP network devices.
+#
+
+chains osnmpt $i # outgoing and incoming rule chains for outgoing SNMP TRAP
+
+# Permit SNMP trap connections to specific external hosts
+
+for server in `combine SNMP_TRAP_SERVERS $i`
+do
+	# Internal management station (client) contacting external SNMP network device (trap server)
+	udpm oosnmpt$i iosnmpt$i $self $normal_ports $server 162
+	tcpm oosnmpt$i iosnmpt$i $self $normal_ports $server 162
+done
+
+##############################################################################
+# Incoming BGP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections from trusted BGP peers.
+#
+
+chains ibgp $i # incoming and outgoing rule chains for incoming BGP
+
+# Permit BGP connections from specific external hosts
+
+for client in `combine BGP_CLIENTS $i`
+do
+	tcp iibgp$i oibgp$i $client 1024: $self 179
+done
+
+##############################################################################
+# Outgoing BGP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connections to trusted BGP peers.
+#
+
+chains obgp $i # outgoing and incoming rule chains for outgoing BGP
+
+# Permit BGP connections to specific external hosts
+
+for server in `combine BGP_SERVERS $i`
+do
+	tcpm oobgp$i iobgp$i $self $normal_ports $server 179
+done
+
+##############################################################################
+# Incoming RIP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connection from trusted routers.
+#
+
+chains irip $i # incoming and outgoing rule chains for incoming RIP
+
+# Permit RIP requests from specific external hosts
+
+for client in `combine RIP_CLIENTS $i`
+do
+	# Incoming RIP broadcast from specified host (server)
+	udp1 iirip$i $client 520 $self 520
+	# Incoming RIP request from specified host (client)
+	udp iirip$i oirip$i $client 1024: $self 520
+done
+
+##############################################################################
+# Outgoing RIP
+#
+# Note: You probably don't want to permit this across a firewall.
+# If you do, only allow connection to trusted routers.
+#
+
+chains orip $i # outgoing and incoming rule chains for outgoing RIP
+
+# Permit RIP requests to specific external hosts
+
+for server in `combine RIP_SERVERS $i`
+do
+	# Outgoing RIP broadcast to specified host (server)
+	udpm1 oorip$i $self 520 $server 520
+	# Outgoing RIP request to specified host (client)
+	udpm oorip$i iorip$i $self $normal_ports $server 520
+done
+
+##############################################################################
+# Incoming PPTP
+#
+# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+#
+
+if [ -n "$PPTP_PROTOCOL" ]
+then
+	chains ipptp $i # incoming and outgoing rule chains for incoming PPTP
+
+	# Permit PPTP connections from specific external hosts
+	# If no clients are specified, permit all hosts
+
+	default_to_any PPTP_CLIENTS $i
+
+	for client in `combine PPTP_CLIENTS $i`
+	do
+		tcp iipptp$i oipptp$i $client 1024: $self pptpctrl # port ???
+		other pptp iipptp$i oipptp$i $client $self # protocol 47
+	done
+fi
+
+##############################################################################
+# Outgoing PPTP
+#
+# Note: You must have pptp(47) in /etc/protocols and pptpctrl in /etc/services.
+# Warning: Some iMplementationS of PPTP are completely insecure, use IPSEC.
+#
+
+if [ -n "$PPTP_PROTOCOL" ]
+then
+	chains opptp $i # outgoing and incoming rule chains for outgoing PPTP
+
+	# Permit PPTP connections to specific external hosts
+	# If no servers are specified, permit all hosts
+
+	default_to_any PPTP_SERVERS $i
+
+	for server in `combine PPTP_SERVERS $i`
+	do
+		tcp oopptp$i iopptp$i $self 1024: $server pptpctrl # port ???
+		other pptp oopptp$i iopptp$i $self $server # protocol 47
+	done
+fi
+
+##############################################################################
+# Incoming IPSEC
+#
+# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
+# /etc/services.
+#
+
+if [ -n "$ESP_PROTOCOL" -a -n "$AH_PROTOCOL" ]
+then
+	chains iipsec $i # incoming and outgoing rule chains for incoming IPSEC
+
+	# Permit IPSEC connections from specific external hosts
+	# If no clients are specified, permit all hosts
+
+	default_to_any IPSEC_CLIENTS $i
+
+	for client in `combine IPSEC_CLIENTS $i`
+	do
+		udp iiipsec$i oiipsec$i $client ipsec $self ipsec # port ???
+		other esp iiipsec$i oiipsec$i $client $self # protocol 50
+		other ah iiipsec$i oiipsec$i $client $self # protocol 51
+	done
+fi
+
+##############################################################################
+# Outgoing IPSEC
+#
+# Note: You must have esp(50) and ah(51) in /etc/protocols and ipsec in
+# /etc/services.
+#
+
+if [ -n "$ESP_PROTOCOL" -a -n "$AH_PROTOCOL" ]
+then
+	chains oipsec $i # outgoing and incoming rule chains for outgoing IPSEC
+
+	# Permit IPSEC connections to specific external hosts
+	# If no servers are specified, permit all hosts
+
+	default_to_any IPSEC_SERVERS $i
+
+	for server in `combine IPSEC_SERVERS $i`
+	do
+		udp ooipsec$i ioipsec$i $self ipsec $client ipsec # port ???
+		other esp ooipsec$i ioipsec$i $self $client # protocol 50
+		other ah ooipsec$i ioipsec$i $self $client # protocol 51
+	done
 fi
 
 ##############################################################################
@@ -1464,17 +2069,16 @@ fi
 # be pinging this host (e.g. your ISP).
 #
 
-ipchains -N iiping # incoming packets for incoming PING
-ipchains -N oiping # outgoing packets for incoming PING
+chains iping $i # incoming and outgoing rule chains for incoming PING
 
-# Permit PING requests from specific hosts.
+# Permit PING requests from specific hosts
 
-for client in $PING_CLIENTS
+for client in `combine PING_CLIENTS $i`
 do
 	# Incoming PING: echo-request
-	ipchains -A iiping -p icmp -s $client 8 -d $self -j ACCEPT
+	icmp iiping$i $client $self 8 $LOG
 	# Outgoing PONG: echo-reply
-	ipchains -A oiping -p icmp -s $self 0 -d $client -j ACCEPT
+	icmp oiping$i $self $client 0
 done
 
 ##############################################################################
@@ -1485,50 +2089,41 @@ done
 # want.
 #
 
-ipchains -N ooping # outgoing packets for outgoing PING
-ipchains -N ioping # incoming packets for outgoing PING
+chains oping $i # outgoing and incoming rule chains for outgoing PING
 
-# Permit PING requests to specific hosts.
+# Permit PING requests to specific hosts
+# If no servers are specified, permit all hosts
 
-for server in $PING_SERVERS
+default_to_any PING_SERVERS $i
+
+for server in `combine PING_SERVERS $i`
 do
 	# Outgoing PING: echo-request
-	ipchains -A ooping -p icmp -s $self 8 -d $server -j ACCEPT
+	icmp ooping$i $self $server 8
 	# Incoming PONG: echo-reply
-	ipchains -A ioping -p icmp -s $server 0 -d $self -j ACCEPT
+	icmp ioping$i $server $self 0
 done
-
-# Permit PING requests to all hosts if no servers were specified.
-
-if [ -z "$PING_SERVERS" ]
-then
-	# Outgoing PING: echo-request
-	ipchains -A ooping -p icmp -s $self echo-request -d $any -j ACCEPT
-	# Incoming PONG: echo-reply
-	ipchains -A ioping -p icmp -s $any echo-reply -d $self -j ACCEPT
-fi
 
 ##############################################################################
 # Incoming TRACEROUTE
 #
 # Note: Only permit incoming traceroute from external hosts that have a
 # reason to be tracing this network (e.g. your ISP). You can also limit
-# which udp ports may be used for incoming traceroute (recommended).
+# which udp ports may be used for incoming traceroute by prior arrangement
+# with those wishing to trace your network (recommended).
 #
 
-ipchains -N iitrace # incoming packets for incoming TRACEROUTE
-ipchains -N oitrace # outgoing packets for incoming TRACEROUTE
+chains itrace $i # incoming and outgoing rule chains for incoming TRACEROUTE
 
-# Permit TRACEROUTE requests from specific hosts.
+# Permit TRACEROUTE requests from specific hosts
 
-for client in $TRACEROUTE_CLIENTS
+for client in `combine TRACEROUTE_CLIENTS $i`
 do
 	# Incoming TRACEROUTE probe
-	ipchains -A iitrace -p udp -s $client -d $self $TRACEROUTE_PORTS -j ACCEPT
-	# Incoming TRACEROUTE response: time-exceeded
-	ipchains -A oitrace -p icmp -s $self 11 -d $client -j ACCEPT
-	# Incoming TRACEROUTE response: port-unreachable
-	ipchains -A oitrace -p icmp -s $self 3 -d $client -j ACCEPT
+	udp1 iitrace$i $client $ITRACEROUTE_SRC_PORTS $self $ITRACEROUTE_DST_PORTS $LOG
+	# Incoming TRACEROUTE responses: time-exceeded, destination-unreachable
+	icmp oitrace$i $self $client 11
+	icmp oitrace$i $self $client 3
 done
 
 ##############################################################################
@@ -1539,32 +2134,21 @@ done
 # to specific hosts if you want.
 #
 
-ipchains -N ootrace # outgoing packets for outgoing TRACEROUTE
-ipchains -N iotrace # incoming packets for outgoing TRACEROUTE
+chains otrace $i # outgoing and incoming rule chains for outgoing TRACEROUTE
 
-# Permit TRACEROUTE requests to specific hosts.
+# Permit TRACEROUTE requests to specific hosts
+# If no servers are specified, permit all hosts
 
-for server in $TRACEROUTE_SERVERS
+default_to_any TRACEROUTE_SERVERS $i
+
+for server in `combine TRACEROUTE_SERVERS $i`
 do
 	# Outgoing TRACEROUTE probe
-	ipchains -A ootrace -p udp -s $self -d $server -j ACCEPT
-	# Outgoing TRACEROUTE response: time-exceeded
-	ipchains -A iotrace -p icmp -s $server 11 -d $self -j ACCEPT
-	# Outgoing TRACEROUTE response: port-unreachable
-	ipchains -A iotrace -p icmp -s $server 3 -d $self -j ACCEPT
+	udpm1 ootrace$i $self $OTRACEROUTE_SRC_PORTS $server $OTRACEROUTE_DST_PORTS
+	# Outgoing TRACEROUTE responses: time-exceeded, destination-unreachable
+	icmp iotrace$i $server $self 11
+	icmp iotrace$i $server $self 3
 done
-
-# Permit TRACEROUTE requests to all hosts if no servers were specified.
-
-if [ -z "$TRACEROUTE_SERVERS" ]
-then
-	# Outgoing TRACEROUTE probe
-	ipchains -A ootrace -p udp -s $self -d $any -j ACCEPT
-	# Outgoing TRACEROUTE response: time-exceeded
-	ipchains -A iotrace -p icmp -s $any 11 -d $self -j ACCEPT
-	# Outgoing TRACEROUTE response: port-unreachable
-	ipchains -A iotrace -p icmp -s $any 3 -d $self -j ACCEPT
-fi
 
 ##############################################################################
 # Other ICMP packets
@@ -1572,21 +2156,79 @@ fi
 # Note: This isn't configurable yet. Munge the [io]icmp chains as needed.
 #
 
-ipchains -N iicmp # other incoming ICMP packets
-ipchains -N oicmp # other outgoing ICMP packets
+chains icmp $i # incoming and outgoing rule chains for other ICMP packets
 
 # Permit incoming destination-unreachable
-ipchains -A iicmp -p icmp -s $any 3 -d $self -j ACCEPT
-#ipchains -A oicmp -p icmp -s $self 3 -d $any -j ACCEPT
+
+icmp iicmp$i $any $self 3
+#icmp oicmp$i$i $self $any 3
+icmp oicmp$i $self $any fragmentation-needed
+
 # Permit incoming and outgoing source-quench
-ipchains -A iicmp -p icmp -s $any 4 -d $self -j ACCEPT
-ipchains -A oicmp -p icmp -s $self 4 -d $any -j ACCEPT
+
+icmp iicmp$i $any $self 4
+icmp oicmp$i $self $any 4
+
 # Permit incoming and outgoing time-exceeded
-ipchains -A iicmp -p icmp -s $any 11 -d $self -j ACCEPT
-ipchains -A oicmp -p icmp -s $self 11 -d $any -j ACCEPT
+
+icmp iicmp$i $any $self 11
+icmp oicmp$i $self $any 11
+
 # Permit incoming and outgoing parameter-problem
-ipchains -A iicmp -p icmp -s $any 12 -d $self -j ACCEPT
-ipchains -A oicmp -p icmp -s $self 12 -d $any -j ACCEPT
+
+icmp iicmp$i $any $self 12
+icmp oicmp$i $self $any 12
+
+##############################################################################
+# Prevent connections to notoriously insecure services (e.g. X Windows,
+# NFS, SOCKS, OpenWindows)
+#
+# Note: There can up to 64(?) X servers on a host, occupying one port each.
+# Blocking 64 ports (whether there are actually that many X servers running or
+# not) can cause problems for other services that innocently bind to those
+# ports only to find that nobody can connect. If you are certain that this host
+# will never run that many X servers, you can reduce the range given in
+# $XWIN_PORTS to something less aggressive: 6000:6000+#Xservers-1
+#
+
+chains danger $i # incoming and outgoing rule chains for dangerous services
+
+# Permit specific X clients to connect
+# Note: Don't use this
+
+for client in `combine XWIN_CLIENTS $i`
+do
+	tcpsyn idanger$i $client : $self $XWIN_PORTS ACCEPT
+	tcpsyn odanger$i $self : $client $XWIN_PORTS ACCEPT
+done
+
+for ports in $XWIN_PORTS $EVIL_TCP_PORTS
+do
+	tcpsyn idanger$i $any : $self $ports DENY $LOG
+	tcpsyn odanger$i $self : $any $ports REJECT $LOG
+done
+
+##############################################################################
+# Self Spoofing
+#
+# Note: Most spoof detection is interface independent (see below) except for
+# spoofing of this host's interfaces' addresses.
+#
+
+chain ispoof $i
+
+# Catch incoming packets that claim to be from this host
+if [ "$self" != "$any" ]
+then
+	ipchains -A ispoof$i -s $self -j DENY $LOG
+fi
+
+##############################################################################
+# End of service chain loop for each untrusted interface's ip addresses.
+#
+
+	done
+done
 
 ##############################################################################
 # Packet Fragments
@@ -1594,70 +2236,355 @@ ipchains -A oicmp -p icmp -s $self 12 -d $any -j ACCEPT
 # Note: This isn't configurable yet. Munge the [io]frag chains as needed.
 #
 
-ipchains -N ifrag # incoming packet fragments
-ipchains -N ofrag # outgoing packet fragments
+chains frag # incoming and outgoing rule chains for fragments
 
-# Permit all packet fragments ???
+# Note: The kernel must "always defrag" so as to avoid attacks where packets
+# that would not pass through the filter aren't assembled until after filtering
+# so we should deny any fragments that make it this far. There shouldn't be
+# any.
 
-ipchains -A ifrag -f -j ACCEPT
-ipchains -A ofrag -f -j ACCEPT
+ipchains -A ifrag -f -j DENY $LOG
+ipchains -A ofrag -f -j REJECT $LOG
 
 ##############################################################################
-# Finally, construct the chains for the untrusted interface. The first rules
-# guard against spoofing of local network addresses and connections to this
-# host's X Window server ports. Following these is the collection of rules
-# for all services permitted by the policy file.
+# IP Spoofing
+#
+# Note: The kernel performs IP spoof protection as explained in the
+# following extract from the "Advanced Router" section's help in the
+# kernel configuration.
+#
+#   If you turn on IP forwarding, you will also get the rp_filter, which
+#   automatically rejects incoming packets if the routing table entry
+#   for their source address doesn't match the network interface they're
+#   arriving on. This has security advantages because it prevents the
+#   so-called IP spoofing, however it can pose problems if you use
+#   asymmetric routing (packets from you to a host take a different path
+#   than packets from that host to you) or if you operate a non-routing
+#   host which has several IP addresses on different interfaces.
+#
+# If most packets take the default route, this only preally protects the host
+# from packets pretending to come from the internal network, not packets
+# pretending to come from some external network (that you may trust to some
+# extent). Following the lead of http://linux-firewall-tools.com, we at least
+# guard against anyone using blatantly illegal network addresses (Perhaps they
+# do this in the hope that they won't have to conflict with anyone else's
+# routing tables to get return packets back(?)).
 #
 
-# Redundant partial IP Spoof Protection
-ipchains -A i$untrusted -s $LOCALNET -j DENY $LOG
+chains spoof # incoming and outgoing rule chains for spoofed packets
 
-# Prevent connections to X servers. Hope it doesn't cause too much grief.
-ipchains -A i$untrusted -p tcp -s $any -d $self $XWINPORTS -y -j DENY $LOG
-
-# Add the input/output chains for permitted services over $untrusted
-
-for service in icmp frag $SERVICES
+# Catch incoming packets that claim to be from an internal network
+for local_network in $INTERNAL_NETWORKS
 do
-	ipchains -A i$untrusted -j i$service
-	ipchains -A o$untrusted -j o$service
+	ipchains -A ispoof -s $local_network -j DENY $LOG
 done
 
-action " up" /bin/true
+# Catch packets claiming to be to or from illegal networks
+for illegal_netork in $ILLEGAL_NETWORKS
+do
+	ipchains -A ispoof -s $illegal_netork -j DENY $LOG
+	ipchains -A ispoof -d $illegal_netork -j DENY $LOG
+	ipchains -A ospoof -s $illegal_netork -j REJECT $LOG
+	ipchains -A ospoof -d $illegal_netork -j REJECT $LOG
+done
+
+# Catch incoming packets with the wrong type of broadcast address
+ipchains -A ispoof -s $broadcast_dst -j DENY $LOG
+ipchains -A ispoof -d $broadcast_src -j DENY $LOG
+
+# Catch packets with a multicast source address
+ipchains -A ispoof -s $multicast -j DENY $LOG
+ipchains -A ospoof -s $multicast -j REJECT $LOG
+
+# Catch packets with a reserved source address
+ipchains -A ispoof -s $reserved  -j DENY $LOG
+
+# Catch incoming packets with IANA reserved source addresses
+for reserved_network in $RESERVED_NETWORKS
+do
+	ipchains -A ispoof -s $reserved_network -j DENY $LOG
+done
 
 ##############################################################################
-# Start IP Spoof Protection
+# Construct the chains for the untrusted interfaces. All untrusted interfaces
+# are protected from spoofing, notoriously dangerous services and problematic
+# networks. Each untrusted interface permits services as specified for it in
+# the policy file.
 #
 
-ipv4=/proc/sys/net/ipv4
+i=-1
+for untrusted in $untrusted_interfaces
+do
+	i=`expr $i + 1`
 
-if [ -e $ipv4/conf/all/rp_filter ]
-then
-	if [ "$SPOOFPROTECT_IPV4" != "no" -a "$SPOOFPROTECT_IPV4" != "false" ]
-	then
-		action "Starting IP Spoof Protection" /bin/true
-		for filter in $ipv4/conf/*/rp_filter
+	# Create incoming and outgoing chains for the untrusted network interface
+
+	chains $untrusted
+
+	# Disallow spoofing
+
+	ipchains -A i$untrusted -j ispoof$i
+	ipchains -A i$untrusted -j ispoof
+	ipchains -A o$untrusted -j ospoof
+
+	# Disallow all packets between this network and untrusted networks
+	# Note: This is not particularly useful. If it's really hostile,
+	# they can spoof some other network's addresses anyway. In fact,
+	# they may have been doing so all along.
+
+	for untrusted_network in $UNTRUSTED_NETWORKS
+	do
+		ipchains -A i$untrusted -s $untrusted_network -j DENY $LOG
+		ipchains -A o$untrusted -d $untrusted_network -j REJECT $LOG
+	done
+
+	# Add the input/output rule chains to deny dangerous services and to
+	# permit required services over $untrusted
+
+	for service in danger$i `number $i \`combine SERVICES $i\`` icmp$i frag
+	do
+		ipchains -A i$untrusted -j i$service
+		ipchains -A o$untrusted -j o$service
+	done
+done
+
+##############################################################################
+# Finally, start filtering packets. Set up the built-in chains. Packets on
+# trusted interfaces are accepted. Packets on untrusted interfaces must pass
+# their respective rule chains. All packets that don't match any terminal
+# rule are logged if requested. Masquerading begins here as well if requested.
+#
+
+# Accept all packets on trusted interfaces
+
+for trusted in $trusted_interfaces
+do
+	ipchains -A input  -i $trusted -j ACCEPT
+	ipchains -A output -i $trusted -j ACCEPT
+done
+
+# Direct packets through each untrusted interface's direction-based chains
+
+for untrusted in $untrusted_interfaces
+do
+	ipchains -A input  -i $untrusted -j i$untrusted
+	ipchains -A output -i $untrusted -j o$untrusted
+done
+
+# Masquerade packets between the local network and everywhere else
+
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+
+		if [ "$MASQ_TCP_TIMEOUT" != 0 -o "$MASQ_TCPFIN_TIMEOUT" != 0 -o "$MASQ_UDP_TIMEOUT" != 0 ]
+		then
+			ipchains -M -S ${MASQ_TCP_TIMEOUT:-0} ${MASQ_TCPFIN_TIMEOUT:-0} ${MASQ_UDP_TIMEOUT:-0}
+		fi
+
+		for masqnet in $INTERNAL_NETWORKS
 		do
-			[ `cat $filter` != 1 ] && echo 1 > $filter
+			ipchains -A forward -s $masqnet -j MASQ
 		done
-	fi
+		;;
+esac
+
+# Log all packets that reach the end of their chain
+
+if [ ! -z "$LOG" ]
+then
+	ipchains -A input $LOG
+	ipchains -A output $LOG
+	ipchains -A forward $LOG
 fi
+
+action "" true
+
+##############################################################################
+# Start IP Source Address Verification
+#
+
+case "$IPV4_SPOOF_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP Source Address Verification"
+		if [ -w $ipv4/conf/all/rp_filter ]
+		then
+			for procfile in $ipv4/conf/*/rp_filter
+			do
+				echo 1 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP Source Routing Protection
+#
+
+case "$IPV4_SOURCE_ROUTE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP Source Routing Protection"
+		if [ -w $ipv4/conf/all/accept_source_route ]
+		then
+			for procfile in $ipv4/conf/*/accept_source_route
+			do
+				echo 0 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP ICMP Redirect Protection
+#
+
+case "$IPV4_ICMP_REDIRECT_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP ICMP Redirect Protection"
+		if [ -w $ipv4/conf/all/accept_redirects ]
+		then
+			for procfile in $ipv4/conf/*/accept_redirects
+			do
+				echo 0 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP TCP SYN Cookie Protection
+#
+
+case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP TCP SYN Cookie Protection"
+		if [ -w $ipv4/tcp_syncookies ]
+		then
+			echo 1 > $ipv4/tcp_syncookies
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP Fragment Protection
+#
+
+case "$IPV4_FRAGMENT_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP Fragment Protection"
+		if [ -w $ipv4/ip_always_defrag ]
+		then
+			echo 1 > $ipv4/ip_always_defrag
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP ICMP Broadcast Echo Protection
+#
+
+case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP ICMP Broadcast Echo Protection"
+		if [ -w $ipv4/icmp_echo_ignore_broadcasts ]
+		then
+			echo 1 > $ipv4/icmp_echo_ignore_broadcasts
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP Bogus Error Response Protection
+#
+
+case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP Bogus Error Response Protection"
+		if [ -w $ipv4/icmp_ignore_bogus_error_responses ]
+		then
+			echo 1 > $ipv4/icmp_ignore_bogus_error_responses
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+##############################################################################
+# Start IP Martian Logging
+#
+
+case "$IPV4_LOG_MARTIANS" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Starting IP Martian Logging"
+		if [ -w $ipv4/conf/all/log_martians ]
+		then
+			for procfile in $ipv4/conf/*/log_martians
+			do
+				echo 0 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
 
 ##############################################################################
 # Start IP Packet Forwarding
 #
 
-if [ -e $ipv4/ip_forward ]
-then
-	if [ "$FORWARD_IPV4" != "no" -a "$FORWARD_IPV4" != "false" ]
-	then
-		if [ `cat $ipv4/ip_forward` != 1 ]
-		then
-			action "Starting IP Packet Forwarding" /bin/true
-			echo 1 > $ipv4/ip_forward
-		fi
-	fi
-fi
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		case "$FORWARD_IPV4" in
+			[Nn]o|[Ff]alse|[Oo]ff|0)
+				;;
+			*)
+				echo -n "Starting IP Packet Forwarding"
+				if [ -w $ipv4/ip_forward ]
+				then
+					[ `cat $ipv4/ip_forward` != 1 ] && echo 1 > $ipv4/ip_forward
+					action "" true
+				else
+					action "" false
+				fi
+				;;
+		esac
+		;;
+esac
 
 exit 0
 

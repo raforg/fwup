@@ -2,7 +2,7 @@
 #
 # firewall: http://www.zip.com.au/~raf2/lib/software/firewall
 #
-# Copyright (C) 1999 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,55 +20,250 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-# fwdown - Brings down the packet filtering firewall
+# fwdown - Brings down an ipchains packet filtering firewall
 #
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 19991231 raf <raf2@zip.com.au>
+# 20000309 raf <raf2@zip.com.au>
+
+##############################################################################
+# Start by checking that we've got everything we need
+#
 
 # Set the path explicitly
-PATH=/sbin:/bin
 
-# Source function library
-[ -f /etc/rc.d/init.d/functions ] || exit 1
-. /etc/rc.d/init.d/functions
+PATH=/sbin:/bin:/usr/bin
 
-# Source network configuration
-[ -f /etc/sysconfig/network ] || exit 1
-. /etc/sysconfig/network
+# Source the function library
+
+if [ -r /etc/rc.d/init.d/functions ]
+then
+	. /etc/rc.d/init.d/functions
+else
+	#echo "$0: failed to find /etc/rc.d/init.f/functions" >&2
+	#exit 1
+
+	# Define a crappy version of redhat's action function.
+
+	action() {
+	  msg=$1
+	  shift
+	  echo -n "$msg "
+	  $* && echo "[ OK ]" || echo "[ FAILED ]"
+	}
+fi
+
+# Source the network configuration
+
+if [ -r /etc/sysconfig/network ]
+then
+	. /etc/sysconfig/network
+#else
+	#echo "$0: failed to find /etc/sysconfig/network" >&2
+	#exit 1
+fi
 
 # Check that networking is required
+
 [ "$NETWORKING" = "no" ] && exit 0
 
 # Check that ipchains is available
-[ -x /sbin/ipchains ] || exit 1
+
+if [ ! -x /sbin/ipchains ]
+then
+	echo "$0: failed to find /sbin/ipchains" >&2
+	exit 1
+fi
+
+# Check that the policy file is available
+
+[ -z "$policy" ] && policy=/etc/sysconfig/firewall.policy
+
+if [ ! -r $policy ]
+then
+	echo "$0: failed to find $policy" >&2
+	exit 1
+fi
+
+# Source the policy file
+
+. $policy
 
 # Stop IP Packet Forwarding
 
 ipv4=/proc/sys/net/ipv4
 
-if [ -e $ipv4/ip_forward ]
-then
-	if [ `cat $ipv4/ip_forward` != 0 ]
-	then
-		action "Stopping IP Packet Forwarding" /bin/true
-		echo 0 > $ipv4/ip_forward
-	fi
-fi
+case "$MASQUERADE" in
+	[Yy]es|[Tt]rue|[Oo]n|1)
+		case "$FORWARD_IPV4" in
+			[Nn]o|[Ff]alse|[Oo]ff|0)
+				;;
+			*)
+				echo -n "Stopping IP Packet Forwarding"
+				if [ -w $ipv4/ip_forward ]
+				then
+					echo 0 > $ipv4/ip_forward
+					action "" true
+				else
+					action "" false
+				fi
+				;;
+		esac
+		;;
+esac
 
-# Stop IP Spoof Protection
+# Stop IP Martian Logging
 
-if [ -e $ipv4/conf/all/rp_filter ]
-then
-	action "Stopping IP Spoof Protection" /bin/true
-	for filter in $ipv4/conf/*/rp_filter
-	do
-		[ `cat $filter` != 0 ] && echo 0 > $filter
-	done
-fi
+case "$IPV4_LOG_MARTIANS" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP Martian Logging"
+		if [ -w $ipv4/conf/all/log_martians ]
+		then
+			for procfile in $ipv4/conf/*/log_martians
+			do
+				echo 0 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
 
-echo -n "Stopping IP Firewall..."
+# Stop IP Bogus Error Response Protection
+
+case "$IPV4_BOGUS_ERROR_RESPONSE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP Bogus Error Response Protection"
+		if [ -w $ipv4/icmp_ignore_bogus_error_responses ]
+		then
+			echo 0 > $ipv4/icmp_ignore_bogus_error_responses
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP ICMP Broadcast Echo Protection
+
+case "$IPV4_ICMP_BROADCAST_ECHO_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP ICMP_Broadcast Echo Protection"
+		if [ -w $ipv4/icmp_echo_ignore_broadcasts ]
+		then
+			echo 0 > $ipv4/icmp_echo_ignore_broadcasts
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP Fragment Protection
+
+case "$IPV4_FRAGMENT_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP Fragment Protection"
+		if [ -w $ipv4/ip_always_defrag ]
+		then
+			echo 0 > $ipv4/ip_always_defrag
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP TCP SYN Cookie Protection
+
+case "$IPV4_TCP_SYN_COOKIE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP TCP SYN Cookie Protection"
+		if [ -w $ipv4/tcp_syncookies ]
+		then
+			echo 0 > $ipv4/tcp_syncookies
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP ICMP Redirect Protection
+
+case "$IPV4_ICMP_REDIRECT_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP ICMP Redirect Protection"
+		if [ -w $ipv4/conf/all/accept_redirects ]
+		then
+			for procfile in $ipv4/conf/*/accept_redirects
+			do
+				echo 1 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP Source Routing Protection
+
+case "$IPV4_SOURCE_ROUTE_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP Source Routing Protection"
+		if [ -w $ipv4/conf/all/accept_source_route ]
+		then
+			for procfile in $ipv4/conf/*/accept_source_route
+			do
+				echo 1 > $procfile
+			done
+			action "" true
+		else
+			acrion "" false
+		fi
+		;;
+esac
+
+# Stop IP Source Address Verification
+
+case "$IPV4_SPOOF_PROTECT" in
+	[Nn]o|[Ff]alse|[Oo]ff|0)
+		;;
+	*)
+		echo -n "Stopping IP Source Address Verification"
+		if [ -w $ipv4/conf/all/rp_filter ]
+		then
+			for procfile in $ipv4/conf/*/rp_filter
+			do
+				[ `cat $procfile` != 0 ] && echo 0 > $procfile
+			done
+			action "" true
+		else
+			action "" false
+		fi
+		;;
+esac
+
+# Stop IP Packet Filter
+
+echo -n "Stopping IP Packet Filter"
 
 # Remove any existing rules/chains
 
@@ -81,7 +276,7 @@ ipchains -P input ACCEPT
 ipchains -P output ACCEPT
 ipchains -P forward ACCEPT
 
-action " down" /bin/true
+action "" true
 
 exit 0
 

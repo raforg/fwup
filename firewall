@@ -2,7 +2,7 @@
 #
 # firewall: http://www.zip.com.au/~raf2/lib/software/firewall
 #
-# Copyright (C) 1999 raf <raf2@zip.com.au>
+# Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,47 +20,45 @@
 # or visit http://www.gnu.org/copyleft/gpl.html
 #
 
-#
 # Startup script for an ipchains packet filtering firewall
 #
 # name: /etc/rc.d/init.d/firewall
-# description: firewall protects the local network from internet based attacks
+# description: firewall provides network security
 # lockfile: /var/lock/subsys/firewall
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/sysconfig/firewall.policy
 #
-# 19991231 raf <raf2@zip.com.au>
+# 20000309 raf <raf2@zip.com.au>
 
-# Source function library.
+# Source function library
 [ -e /etc/rc.d/init.d/functions ] || exit 1
 . /etc/rc.d/init.d/functions
 
-# Source networking configuration.
+# Source networking configuration
 [ -e /etc/sysconfig/network ] || exit 1
 . /etc/sysconfig/network
 
 # Check that networking is required
 [ "$NETWORKING" = "no" ] && exit 0
 
+# Names of the files we will need
+lock=/var/lock/subsys/firewall
 fwup=/usr/local/sbin/fwup
 fwdown=/usr/local/sbin/fwdown
-lock=/var/lock/subsys/firewall
 
-# Check that ipchains is available
-[ -x /sbin/ipchains ] || exit 1
-
-# Check that fwup is available
-[ -x $fwup ] || exit 1
-
-# Check that $fwdown is available
-[ -x $fwdown ] || exit 1
-
-# See how we were called.
+# See how we were called
 case "$1" in
+
 	start|up)
 		if [ -e $lock ]
 		then
 			echo "The Firewall is already up" >&2
+			exit 1
+		fi
+
+		if [ ! -x $fwup ]
+		then
+			echo "$0: failed to find $fwup" >&2
 			exit 1
 		fi
 
@@ -74,21 +72,28 @@ case "$1" in
 			exit 1
 		fi
 
+		if [ ! -x $fwdown ]
+		then
+			echo "$0: failed to find $fwdown" >&2
+			exit 1
+		fi
+
 		$fwdown && rm -f $lock
 		;;
 
 	status)
-		if [ -e $lock ]
-		then
-			echo "The Firewall is up"
-		else
-			echo "The Firewall is down"
-		fi
+		[ -e $lock ] && echo "The Firewall is up" || echo "The Firewall is down"
 		;;
 
 	probe)
-		/sbin/ipchains -L -v
-		/sbin/ipchains -M -L -v
+		if [ ! -x /sbin/ipchains ]
+		then
+			echo "$0: failed to find /sbin/ipchains" >&2
+			exit 1
+		fi
+
+		/sbin/ipchains -L -v -n
+		/sbin/ipchains -M -L -v -n
 		;;
 
 	restart)
@@ -104,6 +109,8 @@ case "$1" in
 	*)
 		echo "Usage: $0 {start|stop|up|down|restart|reload|status|probe}"
 		exit 1
+		;;
+
 esac
 
 exit 0

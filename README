@@ -1,80 +1,119 @@
 README
 ~~~~~~
+firewall - Linux-2.2 ipchains (packet filtering) firewall administration
+
 This contains scripts that manage an ipchains (packet filtering) firewall.
+All you have to do is edit the policy file as per your requirements.
 
-Define filtering policy by selecting from the services listed below and
-specifying which external hosts may be involved as a client or server.
+Policies are specified by editing the policy file to specify trusted and
+untrusted network interfaces, the services you wish to permit, and the
+external hosts which may take part in these services.
 
-The policy is specified in the firewall.policy file. Read it carefully.
+This supports up to 10 untrusted interfaces, each with a distinct policy
+(Although all aliases on a single untrusted interface are treated equally).
+There can be as much or as little sharing of policy between untrusted
+interfaces as you like.
 
-    ismtp   - incoming SMTP
-    osmtp   - outgoing SMTP
-    ipop    - incoming POP
-    opop    - outgoing POP
-    inftp   - incoming FTP (normal mode)
-    ipftp   - incoming FTP (passive mode)
-    onftp   - outgoing FTP (normal mode)
-    opftp   - outgoing FTP (passive mode)
-    itelnet - incoming TELNET
-    otelnet - outgoing TELNET
-    inntp   - incoming NNTP
-    onntp   - outgoing NNTP
-    ihttp   - incoming HTTP
-    ohttp   - outgoing HTTP
-    igopher - incoming GOPHER
-    ogopher - outgoing GOPHER
-    iwais   - incoming WAIS
-    owais   - outgoing WAIS
-    oarchie - outgoing ARCHIE
-    ifinger - incoming FINGER
-    ofinger - outgoing FINGER
-    owhois  - outgoing WHOIS
-    iirc    - incoming IRC
-    oirc    - outgoing IRC
+There is primitive support for IP masquerading. Masqueraded hosts can engage
+in permitted outgoing services (except DHCP, PPTP and IPSEC) exactly like
+the current host and are bound by the same restrictions. Distinct policies
+for internal hosts isn't implemented because there's no NAT support yet.
+
+The policy is specified in the firewall.policy file.
+
+Read it carefully.
+
+Here is the list of currently supported services:
+
     icdns   - incoming Client DNS
     ocdns   - outgoing Client DNS
     isdns   - incoming Server DNS
     osdns   - outgoing Server DNS
-    isyslog - incoming SYSLOG
-    osyslog - outgoing SYSLOG
+    ismtp   - incoming SMTP
+    osmtp   - outgoing SMTP
+    ipop    - incoming POP
+    opop    - outgoing POP
+    iimap   - incoming IMAP
+    oimap   - outgoing IMAP
+    issh1   - incoming SSH1
+    ossh1   - outgoing SSH1
+    issh2   - incoming SSH2
+    ossh2   - outgoing SSH2
+    inftp   - incoming FTP (normal mode)
+    ipftp   - incoming FTP (passive mode)
+    onftp   - outgoing FTP (normal mode)
+    opftp   - outgoing FTP (passive mode)
+    iteln   - incoming TELNET
+    oteln   - outgoing TELNET
+    ihttp   - incoming HTTP
+    ohttp   - outgoing HTTP
+    ihttps  - incoming HTTPS
+    ohttps  - outgoing HTTPS
+    iproxy  - incoming HTTP PROXY
+    oproxy  - outgoing HTTP PROXY
+    inntp   - incoming NNTP
+    onntp   - outgoing NNTP
+    irsync  - incoming RSYNC
+    orsync  - outgoing RSYNC
+    ismb    - incoming SMB
+    osmb    - outgoing SMB
+    iirc    - incoming IRC
+    oirc    - outgoing IRC
+    iicq    - incoming ICQ
+    oicq    - outgoing ICQ
+    ireal   - incoming RealAudio/QuickTime
+    oreal   - outgoing RealAudio/QuickTime
+    intp    - incoming NTP
+    ontp    - outgoing NTP
+    igoph   - incoming GOPHER
+    ogoph   - outgoing GOPHER
+    iwais   - incoming WAIS
+    owais   - outgoing WAIS
+    oarch   - outgoing ARCHIE
+    ifing   - incoming FINGER
+    ofing   - outgoing FINGER
+    owhois  - outgoing WHOIS
+    iauth   - incoming AUTH
+    oauth   - outgoing AUTH
+    ilog    - incoming SYSLOG
+    olog    - outgoing SYSLOG
+    sdhcp   - DHCP Server
+    cdhcp   - DHCP Client
     isnmp   - incoming SNMP
     osnmp   - outgoing SNMP
     isnmpt  - incoming SNMP TRAP
     osnmpt  - outgoing SNMP TRAP
+    ibgp    - incoming BGP
+    obgp    - outgoing BGP
     irip    - incoming RIP
     orip    - outgoing RIP
-    intp    - incoming NTP
-    ontp    - outgoing NTP
-    issh    - incoming SSH
-    ossh    - outgoing SSH
-    iident  - incoming IDENT
-    oident  - outgoing IDENT
+    ipptp   - incoming PPTP
+    opptp   - outgoing PPTP
+    iipsec  - incoming IPSEC
+    oipsec  - outgoing IPSEC
     iping   - incoming PING
     oping   - outgoing PING
     itrace  - incoming TRACEROUTE
     otrace  - outgoing TRACEROUTE
 
-Note: This version hasn't been tested yet. Don't trust it. Test it.
-Bug reports, comments, suggestions and patches are always appreciated.
-
 INSTALL
 ~~~~~~~
-This was written for a Redhat 6.0 Linux 2.2.x system. The Makefile assumes a
-Redhat 6.0 /etc layout and everything else requires ipchains which is a
-Linux-2.2.x feature.
+This was written for a Redhat 6.0 Linux 2.2 system. The Makefile assumes a
+Redhat 6.0 /etc layout (so you might have to edit the Makefile or install
+manually). Everything else requires ipchains which is a Linux-2.2 feature.
 
 Install (as root):
 
-    tar xzf fw.tar.gz
-    cd fw
+    tar xzf firewall-20000309.tar.gz
+    cd firewall-20000309
     make install
 
-Edit and install the sample policy file to reflect your filtering policy:
+Edit the sample policy file to reflect your filtering policy and install it:
 
     vi firewall.policy
     make policy
 
-Start/test the firewall:
+Start/test the firewall (before untrusted interfaces are brought up):
 
     /etc/rc.d/init.d/firewall start
 
@@ -82,10 +121,17 @@ For more details:
 
     make help
 
+Note: Don't trust it. Test it. Many services haven't been tested yet.
+Please send any bug reports, criticism, comments, suggestions, patches ...
+
+After setting up a firewall, don't forget to run port scanners (e.g. nmap) on
+your untrusted interfaces (as root from the inside and the outside) to make
+sure that you got what you wanted. If there are any surprises, investigate.
+
 COPYING
 ~~~~~~~
-firewall - Linux-2.2 ipchains packet filtering firewall management package
-Copyright (C) 1999 raf <raf2@zip.com.au>
+firewall - Linux-2.2 ipchains (packet filtering) firewall administration
+Copyright (C) 1999, 2000 raf <raf2@zip.com.au>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -102,13 +148,63 @@ Copyright (C) 1999 raf <raf2@zip.com.au>
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
     or visit http://www.gnu.org/copyleft/gpl.html
 
+HISTORY
+~~~~~~~
+19991231
+
+    - Initial version.
+
+20000309
+
+    - Incorporated linux-firewall-tools.com:
+      - Added more protection against spoofing and dangerous services
+      - Added more kernel protection (source routing, redirects, syn cookie,
+        defrag, icmp broadcast echo, bogus error response, martian logging)
+      - Added services (DHCP, HTTPS, HTTP PROXY, IMAP, ICQ, Real Audio)
+      - Changed default forward policy from deny to reject
+      - Added "untrusted networks"
+      - Added configuration of masquerade timeouts
+    - Split SSH into SSH1 and SSH2
+    - Added BGP and RSYNC
+    - Fixed DNS policy variables and doco
+    - Cleaned up, fixed bugs
+    - Modified fwup to run on non redhat systems
+    - Added "make decent"
+    - Started logging incoming ping and traceroute even if accepted
+    - IP forwarding only started/stopped if masquerading requested
+    - Started denying/rejecting fragments (kernel must always defrag)
+    - Started using local and masqueraded port ranges (from Mike A. Harris)
+    - Added SMB, PPTP and IPSEC (from Yan Seiner)
+    - Added support for multiple untrusted interfaces with differing policies
+    - Added automatic identification of local networks
+
+REFERENCES
+~~~~~~~~~~
+Building Internet Firewalls by Chapman & Zwicky
+http://linux-firewall-tools.com by Robert L. Ziegler
+The ipchains mailing list. Particularly Yan Seiner and Mike A. Harris
+
+BUGS
+~~~~
+- More chains and rules are created than is absolutely necessary.
+  This wastes time during firewall creation but they are not used
+  and should have no effect on packet filtering speed.
+
+- There is no NAT support yet.
+
+- Logging isn't configurable.
+
 TODO
 ~~~~
-Test fwup!
-Improve fwhelper.
+More testing
+Network Address/Port Translation
+Services: kerberos (at least kpop)
+Policy preprocessor to translate names into addresses
+Make logging configurable
+Improve fwhelper
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://www.zip.com.au/~raf2/lib/software/firewall
-Date: 19991231
+Date: 20000309
 Author: raf <raf2@zip.com.au>
 
