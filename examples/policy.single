@@ -1,7 +1,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf@raf.org>
+# Copyright (C) 1999-2001 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #
 # Read it carefully.
 #
-# 20000914 raf <raf@raf.org>
+# 20010211 raf <raf@raf.org>
 
 ##############################################################################
 # About the policy file
@@ -115,6 +115,11 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 # prevents spoof protection from occurring on those interfaces. Otherwise,
 # private IP addresses would be blocked on internal interfaces.
 # INTERNAL_UNTRUSTED_INTERFACES=""
+
+# Identify the private networks that are illegal on the internet. You only
+# need to change this (removing certain items from the default, below) when
+# partitioning private netorks in which these addresses are used.
+# ILLEGAL_NETWORKS="127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
 
 ##############################################################################
 # Network Topology
@@ -280,6 +285,30 @@ INTERNAL_NETWORKS="10.0.0.0/24"
 
 # NAT=""
 # e.g. NAT="$NAT 222.222.222.222 10.0.0.1"
+
+##############################################################################
+# Redirecting
+#
+# This is for host's that perform transparent proxying.
+#
+# Note: Requires CONFIG_IP_TRANSPARENT_PROXY in kernel configuration.
+#
+
+# REDIRECTING="no"
+
+# Redirection occurs to packets as they arrive. Specify which network
+# interfaces packets will arrive on that need to be redirected. Usually,
+# this will be the same as the internal interfaces.
+
+# REDIRECT_INTERFACES="$TRUSTED_INTERFACES"
+
+# Specify (protocol, dstaddr, dstport, redirport) tuples where protocol is
+# either tcp or udp, dstaddr/dstport is the original destination of the
+# incoming packets to be redirected, and redirport is the port on the
+# localhost to which the packets are to be redirected.
+
+# REDIRECT=""
+# e.g. REDIRECT="$REDIRECT tcp $any 80 3128"
 
 ##############################################################################
 # Configure other kernel supplied protection
@@ -1184,6 +1213,41 @@ SERVICES="$SERVICES oirc"
 # REALAUDIO_SERVERS=""
 
 ##############################################################################
+# Incoming VNC
+#
+# Note: VNC provides remote control of other hosts so don't allow it across
+# a firewall. If you need to run internal VNC servers, restrict access to
+# known clients.
+#
+# Open: tcp/5800-5801,5900-5902
+
+# SERVICES="$SERVICES ivnc"
+
+# List of hosts which may connect to local VNC servers.
+# Blank means no hosts.
+# VNC_CLIENTS=""
+
+# Ports used by external VNC servers (determined by number of displays)
+# OUTGOING_VNC_PORTS="5800:5801 5900:5902"
+
+##############################################################################
+# Outgoing VNC
+#
+# Note: Permit this if you need to remotely control external hosts running
+# VNC servers.
+#
+# Open: tcp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES ovnc"
+
+# List of VNC servers to which this network may connect.
+# Blank means all hosts.
+# VNC_SERVERS=""
+
+# Ports used by external VNC servers (determined by number of displays)
+# OUTGOING_VNC_PORTS="5800:5801 5900:5902"
+
+##############################################################################
 # Incoming NTP
 #
 # Note: Only permit this if this host is running a public NTP server. If
@@ -1211,6 +1275,66 @@ SERVICES="$SERVICES ontp"
 # List of NTP servers to which this network may connect.
 # Blank means no hosts.
 NTP_SERVERS="222.222.222.5/32"
+
+##############################################################################
+# Incoming DAYTIME (RFC 867)
+#
+# Note: Only permit this if this host is running a public DAYTIME server. If
+# it's an internal host, only permit connections from a proxy DAYTIME server
+# running on a bastion host.
+#
+# Open: tcp/13, udp/13
+
+# SERVICES="$SERVICES idayt"
+
+# List of hosts which may connect to this host's DAYTIME server.
+# Blank means all hosts.
+# DAYTIME_CLIENTS=""
+
+##############################################################################
+# Outgoing DAYTIME (RFC 867)
+#
+# Note: Permit this if you synchronize your network from external DAYTIME
+# servers (e.g. time-b.nist.gov). Restrict DAYTIME connections to only those
+# DAYTIME servers because it leaves many UDP ports open.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES odayt"
+
+# List of DAYTIME servers to which this network may connect.
+# Blank means no hosts.
+# DAYTIME_SERVERS=""
+
+##############################################################################
+# Incoming TIME (RFC 868)
+#
+# Note: Only permit this if this host is running a public TIME server. If
+# it's an internal host, only permit connections from a proxy TIME server
+# running on a bastion host.
+#
+# Open: tcp/37, udp/37
+
+# SERVICES="$SERVICES itime"
+
+# List of hosts which may connect to this host's TIME server.
+# Blank means all hosts.
+# TIME_CLIENTS=""
+
+##############################################################################
+# Outgoing TIME (RFC 868)
+#
+# Note: Permit this if you synchronize your network from external TIME
+# servers (e.g. time.nist.gov). Restrict TIME connections to only those
+# TIME servers because it leaves many UDP ports open.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+# SERVICES="$SERVICES otime"
+
+# List of TIME servers to which this network may connect.
+# Blank means no hosts.
+# TIME_SERVERS=""
 
 ##############################################################################
 # Incoming GOPHER

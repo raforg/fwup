@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf@raf.org>
+# Copyright (C) 1999-2001 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 # Define policy in /etc/firewall.policy
 # Read it carefully
 #
-# 20000914 raf <raf@raf.org>
+# 20010211 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] [fwdebug=1|2] fwup
@@ -48,7 +48,7 @@
 
 # Set the path explicitly
 
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
+PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
 
 # Define a version of redhat's action function that copes with functions
 
@@ -134,6 +134,14 @@ no()
 	esac
 }
 
+locate()
+{
+	for dir in `echo $PATH | sed 's/:/ /g'`
+	do
+		[ -x "$dir/$1" ] && echo "$dir/$1" && break
+	done
+}
+
 # Source the network configuration (if redhat)
 
 [ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
@@ -144,18 +152,20 @@ no()
 
 # Check that ipchains is available
 
-[ ! -x /sbin/ipchains ] && die "failed to find executable /sbin/ipchains"
+ipchains_cmd="`locate ipchains`"
+[ -z "$ipchains_cmd" ] && die "failed to find executable ipchains"
 
 # Check whether or not ipchains has the ipchains-Q patch
 
-if /sbin/ipchains --help | grep quick >/dev/null
+if "$ipchains_cmd" --help | grep quick >/dev/null
 then
 	[ -z "$fwdebug" ] && IPCHAINS_QUICK=1
 fi
 
 # Check that ifconfig is available
 
-[ ! -x /sbin/ifconfig ] && die "failed to find executable /sbin/ifconfig"
+ifconfig_cmd="`locate ifconfig`"
+[ -z "$ifconfig_cmd" ] && die "failed to find executable ifconfig"
 
 # Check for other protocols that we might need
 
@@ -202,17 +212,17 @@ private_c="192.168.0.0/16"
 
 multicast="224.0.0.0/4"
 
-# Class E reserved address
-
-reserved="240.0.0.0/5"
-
 # Illegal addresses
 
 ILLEGAL_NETWORKS="$loopback $private_a $private_b $private_c"
 
-# Reserved addresses
+# IANA Reserved addresses
+# http://www.isi.edu/in-notes/iana/assignments/ipv4-address-space
 
-RESERVED_NETWORKS="1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 49.0.0.0/8 50.0.0.0/8 58.0.0.0/7 60.0.0.0/8 65.0.0.0/8 66.0.0.0/8 67.0.0.0/8 68.0.0.0/8 69.0.0.0/8 70.0.0.0/8 71.0.0.0/8 72.0.0.0/8 73.0.0.0/8 74.0.0.0/8 75.0.0.0/8 76.0.0.0/8 77.0.0.0/8 78.0.0.0/8 79.0.0.0/8 80.0.0.0/4 96.0.0.0/4 112.0.0.0/8 113.0.0.0/8 114.0.0.0/8 115.0.0.0/8 116.0.0.0/8 117.0.0.0/8 118.0.0.0/8 119.0.0.0/8 120.0.0.0/8 121.0.0.0/8 122.0.0.0/8 123.0.0.0/8 124.0.0.0/8 125.0.0.0/8 126.0.0.0/8 197.0.0.0/8 217.0.0.0/8 218.0.0.0/8 219.0.0.0/8 220.0.0.0/6"
+RESERVED_NETWORKS="0.0.0.0/8 1.0.0.0/8 2.0.0.0/8 5.0.0.0/8 7.0.0.0/8 23.0.0.0/8 27.0.0.0/8 31.0.0.0/8 36.0.0.0/8 37.0.0.0/8 39.0.0.0/8 41.0.0.0/8 42.0.0.0/8 58.0.0.0/8 59.0.0.0/8 60.0.0.0/8 67.0.0.0/8 68.0.0.0/6 72.0.0.0/6 76.0.0.0/6 80.0.0.0/4 96.0.0.0/4 112.0.0.0/4 197.0.0.0/8 219.0.0.0/8 220.0.0.0/6 240.0.0.0/4"
+# I'm not absolutely certain that the following are IANA Reserved networks.
+# It looks like they are but they're not explicitly labelled "IANA - Reserved".
+RESERVED_NETWORKS="$RESERVED_NETWORKS 49.0.0.0/8 50.0.0.0/8 201.0.0.0/8"
 
 ##############################################################################
 # Determine some system specific port numbers
@@ -303,6 +313,11 @@ RTP_PORTS="4000:4400" # For 1 E1
 NET2PHONE_UDP_PORT=6802
 NET2PHONE_TCP_PORT=6802
 
+# Ports used by VNC (determined by number of displays)
+
+INCOMING_VNC_PORTS="5800:5801 5900:5902"
+OUTGOING_VNC_PORTS="$INCOMING_VNC_PORTS"
+
 ##############################################################################
 # Define some default timeout values used for masquerading. You can override
 # these in the policy file.
@@ -337,7 +352,7 @@ MASQ_UDP_TIMEOUT="0"
 
 # If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
-[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | awk '
+[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`"$ifconfig_cmd" | awk '
 
 	# Print the addresses and network masks of the internal interfaces (not lo)
 
@@ -400,7 +415,7 @@ too_many $UNTRUSTED_INTERFACES && die "Too many untrusted interfaces (only suppo
 # If any interfaces have aliases, we treat their addresses as being
 # equal for that interface.
 
-[ -z "$UNTRUSTED_ADDRESSES" ] && UNTRUSTED_ADDRESSES="`ifconfig | awk '
+[ -z "$UNTRUSTED_ADDRESSES" ] && UNTRUSTED_ADDRESSES="`"$ifconfig_cmd" | awk '
 
 	# Print the addresses of the untrusted interfaces in order of the
 	# appearance of their interface (multiple addresses/aliases are comma
@@ -456,7 +471,8 @@ too_many $UNTRUSTED_INTERFACES && die "Too many untrusted interfaces (only suppo
 if yes "$STATIC_NAT"
 then
 	# Check that ip is available
-	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for static NAT)"
+	ip_cmd="`locate ip`"
+	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for static NAT)"
 	# Check that /etc/iproute2 is available
 	[ ! -d /etc/iproute2 ] && die "failed to find directory /etc/iproute2 (required for static NAT)"
 	# Check the policy variable
@@ -467,7 +483,8 @@ fi
 if yes "$ALIAS_PORT_FORWARDING"
 then
 	# Check that ip is available
-	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for alias port porwarding)"
+	ip_cmd="`locate ip`"
+	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for alias port porwarding)"
 	# Check the policy variable
 	[ -z "$ALIAS_PORTFW" ] && die "\$ALIAS_PORTFW must be defined in $policy (required for alias port porwarding)"
 	# Implies PORT_FORWARDING
@@ -478,7 +495,8 @@ fi
 if yes "$PORT_FORWARDING"
 then
 	# Check that ipmasqadm is available
-	[ ! -x /usr/sbin/ipmasqadm ] && die "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
+	ipmasqadm_cmd="`locate ipmasqadm`"
+	[ -z "$ipmasqadm_cmd" ] && die "failed to find executable ipmasqadm (required for port forwarding)"
 	# Check the policy variable
 	not yes "$ALIAS_PORT_FORWARDING" && [ -z "$PORTFW" -a -z "$PORTRANGEFW" ] && die "\$PORTFW or \$PORTRANGEFW must be defined in $policy (required for port forwarding)"
 	# Implies MASQUERADING
@@ -509,6 +527,10 @@ then
 	yes "$MASQUERADING" && die "\$STATIC_NAT and \$MASQUERADING are mutually exclusive"
 	yes "$FORWARDING" && die "\$STATIC_NAT and \$FORWARDING are mutually exclusive"
 fi
+
+# Define REDIRECT_INTERFACES if not already done
+
+[ -z "$REDIRECT_INTERFACES" ] && REDIRECT_INTERFACES="$TRUSTED_INTERFACES"
 
 # Check that $OCDNS_SERVERS or $OSDNS_SERVERS is defined or really obvious
 
@@ -543,8 +565,8 @@ cmdfile="/tmp/ipchains.q"
 quick_start()
 {
 	rm -f $cmdfile
+	umask 077
 	touch $cmdfile
-	chmod 600 $cmdfile
 }
 
 quick()
@@ -554,7 +576,7 @@ quick()
 
 quick_run()
 {
-	/sbin/ipchains -Q $cmdfile
+	"$ipchains_cmd" -Q $cmdfile
 	local rc=$?
 	rm -f $cmdfile
 	return $rc
@@ -577,19 +599,19 @@ dbg2()
 ipchains()
 {
 	dbg && echo ipchains $* >&2
-	yes "$IPCHAINS_QUICK" && quick ipchains $* || /sbin/ipchains $*
+	yes "$IPCHAINS_QUICK" && quick ipchains $* || "$ipchains_cmd" $*
 }
 
 ipmasqadm()
 {
 	dbg && echo ipmasqadm $* >&2
-	/usr/sbin/ipmasqadm $*
+	"$ipmasqadm_cmd" $*
 }
 
 ip()
 {
 	dbg && echo ip $* >&2
-	/sbin/ip $*
+	"$ip_cmd" $*
 }
 
 ##############################################################################
@@ -2287,6 +2309,32 @@ oreal()
 }
 
 ##############################################################################
+# Incoming VNC
+#
+# Open: tcp/5800-5801,5900-5902
+
+ivnc()
+{
+	for ports in $INCOMING_VNC_PORTS
+	do
+		incoming_tcp_only vnc "$1" "$ports" VNC_CLIENTS $2
+	done
+}
+
+##############################################################################
+# Outgoing VNC
+#
+# Open: tcp(ack)/1024-4999,61000-65096
+
+ovnc()
+{
+	for ports in $OUTGOING_VNC_PORTS
+	do
+		outgoing_tcp_any vnc "$1" "$ports" VNC_SERVERS $2
+	done
+}
+
+##############################################################################
 # Incoming NTP
 #
 # Note: Only permit this if this host is running a public NTP server. If
@@ -2337,6 +2385,66 @@ ontp()
 			udpm $index oontp$index iontp$index $target $normal_ports $server 123
 		done
 	done
+}
+
+##############################################################################
+# Incoming DAYTIME (RFC 867)
+#
+# Note: Only permit this if this host is running a public DAYTIME server. If
+# it's an internal host, only permit connections from a proxy DAYTIME server
+# running on a bastion host.
+#
+# Open: tcp/13, udp/13
+
+idayt()
+{
+	incoming_tcp_any dayt "$1" 13 DAYTIME_CLIENTS $2
+	incoming_udp_any dayt "$1" 13 DAYTIME_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing DAYTIME (RFC 867)
+#
+# Note: Permit this if you synchronize your network from external DAYTIME
+# servers (e.g. time-b.nist.gov). Restrict DAYTIME connections to only those
+# DAYTIME servers because it leaves many UDP ports open.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+odayt()
+{
+	outgoing_tcp_only dayt "$1" 13 DAYTIME_SERVERS $2
+	outgoing_udp_only dayt "$1" 13 DAYTIME_SERVERS $2
+}
+
+##############################################################################
+# Incoming TIME (RFC 868)
+#
+# Note: Only permit this if this host is running a public TIME server. If
+# it's an internal host, only permit connections from a proxy TIME server
+# running on a bastion host.
+#
+# Open: tcp/37, udp/37
+
+itime()
+{
+	incoming_tcp_any time "$1" 37 TIME_CLIENTS $2
+	incoming_udp_any time "$1" 37 TIME_CLIENTS $2
+}
+
+##############################################################################
+# Outgoing TIME (RFC 868)
+#
+# Note: Permit this if you synchronize your network from external TIME
+# servers (e.g. time.nist.gov). Restrict TIME connections to only those
+# TIME servers because it leaves many UDP ports open.
+#
+# Open: tcp(ack)/1024-4999,61000-65096, udp/1024-4999,61000-65096
+
+otime()
+{
+	outgoing_tcp_only time "$1" 37 TIME_SERVERS $2
+	outgoing_udp_only time "$1" 37 TIME_SERVERS $2
 }
 
 ##############################################################################
@@ -3685,6 +3793,27 @@ init_nat()
 }
 
 ##############################################################################
+# Redirection
+#
+# This is for host's that perform transparent proxying.
+#
+# Note: Requires CONFIG_IP_TRANSPARENT_PROXY in kernel configuration.
+#
+
+init_redirect()
+{
+	set $REDIRECT
+	[ $# != 0 ] && chain redirect
+	while [ $# != 0 ]
+	do
+		local protocol=$1 dstaddr=$2 dstport=$3 redirport=$4
+		shift; shift; shift; shift
+		[ -z "$protocol" -o -z "$dstaddr" -o -z "$dstport" -o -z "$redirport" ] && break
+		ipchains -A redirect -p "$protocol" -d "$dstaddr" "$dstport" -j REDIRECT "$redirport"
+	done
+}
+
+##############################################################################
 # Before we start creating chains, set up the policy for the top level chains
 # and flush all chains.
 #
@@ -3755,9 +3884,6 @@ do_start_filter()
 	# Catch packets with a multicast source address
 	ipchains -A ispoof -s $multicast -j $BLOCKIN $LOG
 	ipchains -A ospoof -s $multicast -j $BLOCKOUT $LOG
-
-	# Catch packets with a reserved source address
-	ipchains -A ispoof -s $reserved  -j $BLOCKIN $LOG
 
 	# Catch incoming packets with IANA reserved source addresses
 	for reserved_network in $RESERVED_NETWORKS
@@ -3878,6 +4004,18 @@ do_start_filter()
 			ipchains -A i$untrusted -j i$service
 			ipchains -A o$untrusted -j o$service
 		done
+	done
+
+##############################################################################
+# Redirection
+#
+
+	for redirect_iface in $REDIRECT_INTERFACES
+	do
+		# Create the redirect chain if it wasn't created earlier
+		[ -z "$chain_fwmark" ] && chain redirect
+
+		ipchains -A input -i $redirect_iface -j redirect
 	done
 
 ##############################################################################

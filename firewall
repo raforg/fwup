@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf@raf.org>
+# Copyright (C) 1999-2001 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,7 +28,12 @@
 # programs: /usr/local/sbin/{fwup,fwdown}
 # config: /etc/firewall.policy
 #
-# 20000914 raf <raf@raf.org>
+# 20010211 raf <raf@raf.org>
+
+# Set the path explicitly
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
+export PATH
 
 # Source networking configuration (if redhat)
 
@@ -40,13 +45,21 @@
 
 # Locations of the files we will need
 
-lock=/var/lock/subsys/firewall
-policy=/etc/firewall.policy
-fwup=/usr/local/sbin/fwup
-fwdown=/usr/local/sbin/fwdown
-ipchains=/sbin/ipchains
-ipmasqadm=/usr/sbin/ipmasqadm
-ip=/sbin/ip
+locate()
+{
+	for dir in `echo $PATH | sed 's/:/ /g'`
+	do
+		[ -x "$dir/$1" ] && echo "$dir/$1" && break
+	done
+}
+
+lock="/var/lock/subsys/firewall"
+policy="/etc/firewall.policy"
+fwup="`locate fwup`"
+fwdown="`locate fwdown`"
+ipchains="`locate ipchains`"
+ipmasqadm="`locate ipmasqadm`"
+ip="`locate ip`"
 
 die()
 {
@@ -58,57 +71,57 @@ die()
 case "$1" in
 
 	start|up)
-		[ -e $lock ] && die "The Firewall is already up"
-
-		[ ! -x $fwup ] && die "Failed to find executable $fwup"
-		[ ! -r $policy ] && die "Failed to find readable $policy"
-
-		policy="$policy" $fwup && touch $lock
+		[ -e "$lock" ] && die "The Firewall is already up"
+		[ -z "$fwup" ] && die "Failed to find executable fwup"
+		[ ! -r "$policy" ] && die "Failed to find readable $policy"
+		policy="$policy" "$fwup" && touch "$lock"
 		;;
 
 	stop|down)
-		[ ! -e $lock ] && die "The Firewall is already down"
-
-		[ ! -x $fwdown ] && die "Failed to find executable $fwdown"
+		[ ! -e "$lock" ] && die "The Firewall is already down"
+		[ -z "$fwdown" ] && die "Failed to find executable fwdown"
 		[ ! -r $policy ] && die "Failed to find readable $policy"
-
-		policy="$policy" $fwdown && rm -f $lock
+		policy="$policy" "$fwdown" && rm -f "$lock"
 		;;
 
 	status)
-		[ -e $lock ] && echo "The Firewall is up" || echo "The Firewall is down"
+		[ -e "$lock" ] && echo "The Firewall is up" || echo "The Firewall is down"
 		;;
 
 	probe)
-		[ ! -x $ipchains ] && die "Failed to find executable $ipchains"
+		[ -z "$ipchains" ] && die "Failed to find executable ipchains"
 
 		echo ipchains -L -v -n
 		echo ~~~~~~~~~~~~~~~~~
-		$ipchains -L -v -n
+		"$ipchains" -L -v -n
 
 		echo
 		echo ipchains -M -L -v -n
 		echo ~~~~~~~~~~~~~~~~~~~~
-		$ipchains -M -L -v -n
+		"$ipchains" -M -L -v -n
 
-		if [ -x $ipmasqadm ]
+		if [ -n "$ipmasqadm" ]
 		then
 			echo
 			echo ipmasqadm portfw -l -n
 			echo ~~~~~~~~~~~~~~~~~~~~~~
-			$ipmasqadm portfw -l -n
+			"$ipmasqadm" portfw -l -n
+			echo
+			echo ipmasqadm mfw -L -n
+			echo ~~~~~~~~~~~~~~~~~~~
+			"$ipmasqadm" mfw -L -n
 		fi
 
-		if [ -x $ip ]
+		if [ -n "$ip" ]
 		then
 			echo
 			echo ip rule show
 			echo ~~~~~~~~~~~~
-			$ip rule show
+			"$ip" rule show
 			echo
 			echo ip route show
 			echo ~~~~~~~~~~~~~
-			$ip route show
+			"$ip" route show
 		fi
 		;;
 
@@ -118,7 +131,7 @@ case "$1" in
 		;;
 
 	reload)
-		rm -f $lock
+		rm -f "$lock"
 		$0 start
 		;;
 

@@ -3,7 +3,7 @@ use strict;
 
 # firewall - http://fwup.org/
 #
-# Copyright (C) 2000 raf <raf@raf.org>
+# Copyright (C) 2000-2001 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,15 +32,13 @@ I<dns2ip> - a filter that translates domain names into IP addresses
 
 Reads from standard input looking for domain names containing at least two
 ``.'' characters. These are translated into IP addresses by performing DNS
-lookups. The resulting text is printed to standard output.
+lookups. The resulting text is printed to standard output. Domain names
+that appear on a line after a C<``#''> character are not translated.
 
 =head1 BUGS
 
 This can take a long time to execute if there are things in the file that
 look like domain names but aren't (about 1 second per false positive).
-
-All domain names are translated into IP addresses, even those in comments.
-This probably isn't desirable.
 
 This can completely fail to help you if there are many DNS PTR records that
 refer to the same domain name but only one DNS A record for that domain name.
@@ -51,7 +49,7 @@ properly. You'll just have to use IP addresses directly when this is the case.
 
 =head1 AUTHOR
 
-20000321 raf <raf@raf.org>
+20010211 raf <raf@raf.org>
 
 =cut
 
@@ -65,6 +63,9 @@ main:
 {
 	while (<>)
 	{
+		chop();
+		my $comment = '';
+		$comment = $1, s/#.*$// if /(#.*$)/;
 		my $before = '';
 		my $after = $_;
 
@@ -95,7 +96,7 @@ main:
 			}
 		}
 
-		print $before, $after;
+		print $before, $after, $comment, "\n";
 	}
 
 	exit(0);

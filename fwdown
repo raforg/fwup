@@ -2,7 +2,7 @@
 #
 # firewall - http://fwup.org/
 #
-# Copyright (C) 1999, 2000 raf <raf@raf.org>
+# Copyright (C) 1999-2001 raf <raf@raf.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 # Run this after all network interfaces are down
 # (i.e. after /etc/rc.d/rc?.d/K??network stop)
 #
-# 20000914 raf <raf@raf.org>
+# 20010211 raf <raf@raf.org>
 
 ##############################################################################
 # Usage: [policy=filename] fwdown
@@ -40,7 +40,7 @@
 
 # Set the path explicitly
 
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
+PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin
 
 # Define a version of redhat's action function that copes with functions
 
@@ -126,6 +126,14 @@ no()
 	esac
 }
 
+locate()
+{
+	for dir in `echo $PATH | sed 's/:/ /g'`
+	do
+		[ -x "$dir/$1" ] && echo "$dir/$1" && break
+	done
+}
+
 # Source the network configuration (if redhat)
 
 [ -r /etc/sysconfig/network ] && . /etc/sysconfig/network
@@ -136,7 +144,13 @@ no()
 
 # Check that ipchains is available
 
-[ ! -x /sbin/ipchains ] && die "failed to find executable /sbin/ipchains"
+ipchains_cmd="`locate ipchains`"
+[ -z "$ipchains_cmd" ] && die "failed to find executable ipchains"
+
+# Check that ifconfig is available
+
+ifconfig_cmd="`locate ifconfig`"
+[ -z "$ifconfig_cmd" ] && die "failed to find executable ifconfig"
 
 # Check that the policy file is available
 
@@ -158,7 +172,7 @@ no()
 
 # If $INTERNAL_NETWORKS isn't defined, derive it from $TRUSTED_INTERFACES
 
-[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`ifconfig | awk '
+[ -z "$INTERNAL_NETWORKS" ] && INTERNAL_NETWORKS="`"$ifconfig_cmd" | awk '
 
 	# Print the addresses and network masks of the internal interfaces (not lo)
 
@@ -204,19 +218,28 @@ no()
 
 # Check that ip is available if static NAT
 
-yes "$STATIC_NAT" && [ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for static NAT)"
+if yes "$STATIC_NAT"
+then
+	ip_cmd="`locate ip`"
+	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for static NAT)"
+fi
 
 # Check that ip is available if alias port porwarding
 
 if yes "$ALIAS_PORT_FORWARDING"
 then
-	[ ! -x /sbin/ip ] && die "failed to find executable /sbin/ip (required for alias port porwarding)"
+	ip_cmd="`locate ip`"
+	[ -z "$ip_cmd" ] && die "failed to find executable ip (required for alias port porwarding)"
 	PORT_FORWARDING="yes"
 fi
 
 # Check that ipmasqadm is available if port forwarding or alias port porwarding
 
-yes "$PORT_FORWARDING" && [ ! -x /usr/sbin/ipmasqadm ] && die "failed to find executable /usr/sbin/ipmasqadm (required for port forwarding)"
+if yes "$PORT_FORWARDING"
+then
+	ipmasqadm_cmd="`locate ipmasqadm`"
+	[ -z "$ipmasqadm_cmd" ] && die "failed to find executable ipmasqadm (required for port forwarding)"
+fi
 
 ##############################################################################
 # Debugging
@@ -230,19 +253,19 @@ dbg()
 ipchains()
 {
 	dbg && echo ipchains $* >&2
-	/sbin/ipchains $*
+	"$ipchains_cmd" $*
 }
 
 ipmasqadm()
 {
 	dbg && echo ipmasqadm $* >&2
-	/usr/sbin/ipmasqadm $*
+	"$ipmasqadm_cmd" $*
 }
 
 ip()
 {
 	dbg && echo ip $* >&2
-	/sbin/ip $*
+	"$ip_cmd" $*
 }
 
 ##############################################################################

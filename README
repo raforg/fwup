@@ -101,8 +101,14 @@ Here is the list of currently supported services:
     oicq    - outgoing ICQ
     ireal   - incoming RealAudio/QuickTime
     oreal   - outgoing RealAudio/QuickTime
+    ivnc    - incoming VNC
+    ovnc    - outgoing VNC
     intp    - incoming NTP
     ontp    - outgoing NTP
+    idayt   - incoming DAYTIME
+    odayt   - outgoing DAYTIME
+    itime   - incoming TIME
+    otime   - outgoing TIME
     igoph   - incoming GOPHER
     ogoph   - outgoing GOPHER
     iwais   - incoming WAIS
@@ -157,8 +163,8 @@ See REQUIREMENTS for runtime requirements.
 
 Unpack the distribution:
 
-    tar xzf firewall-20000914.tar.gz
-    cd firewall-20000914
+    tar xzf firewall-20010211.tar.gz
+    cd firewall-20010211
 
 Read the policy file and edit it to reflect your filtering policy and topology:
 
@@ -229,8 +235,8 @@ REQUIREMENTS
 
 These can be found at:
 
-  Linux-2.2 - http://www.kernel.org/ (2.2.15)
-  ipchains  - http://netfilter.kernelnotes.org/ipchains/ (1.3.9)
+  Linux-2.2 - http://www.kernel.org/ (2.2.18)
+  ipchains  - http://netfilter.kernelnotes.org/ipchains/ (1.3.10)
   ipmasqadm - http://juanjox.kernelnotes.org/ (0.4.2)
   iproute2  - ftp://ftp.inr.ac.ru/ (000305)
   nmap      - http://www.insecure.org/nmap/ (2.53)
@@ -240,7 +246,7 @@ These can be found at:
 COPYING
 ~~~~~~~
 firewall - Linux-2.2 ipchains firewall/NAPT/NAT administration
-Copyright (C) 1999, 2000 raf <raf@raf.org>
+Copyright (C) 1999-2001 raf <raf@raf.org>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -367,6 +373,16 @@ HISTORY
     - Added port range forwarding in $PORTRANGEFW
     - Made outgoing server dns (when masquerading) more strict
 
+20010211
+
+    - Added VNC service
+    - Exposed $ILLEGAL_NETWORKS to policy file (for partitioning private nets)
+    - Added support for REDIRECT (transparent proxying)
+    - Updated and optimised $RESERVED_NETWORKS (bs@axysdesign.com, jshin@pantheon.yale.edu)
+    - Added search in $PATH for programs (bs@axysdesign.com)
+    - Stopped dns2ip from translating in shell comments (jshin@pantheon.yale.edu)
+    - Added TIME, DAYTIME services (jshin@pantheon.yale.edu)
+
 REFERENCES
 ~~~~~~~~~~
 Building Internet Firewalls by Chapman & Zwicky
@@ -380,6 +396,11 @@ mason (http://www.pobox.com/~wstearns/mason) by Willian Stearns (trojans)
 
 BUGS
 ~~~~
+- Alias Port Forwarding doesn't work. If anyone with access to multiple
+  public IP Addresses would like to help me test/fix it, please contact me.
+
+- Masquerading the H.323 services (e.g. HOTTELEPHONE) doesn't work.
+
 - The *SERVERS* and *CLIENTS* policy variables for a given service apply to all
   instances of a service across a given interface. This means that if you have
   something like: SERVICES="oservice.targeta oservice.targetb", then the hosts
@@ -387,8 +408,8 @@ BUGS
   external servers for the given service. Let me know if this is a problem.
   It can be fixed but the policy file will get a bit uglier.
 
-- Masquerading across multiple interfaces is not supported. This is probably
-  a feature since doing so seems strange. Let me know if this is a problem.
+- Masquerading across multiple interfaces is not supported.
+  Let me know if this is a problem.
 
 - When port forwarding, internal hosts shouldn't try to make connections to
   the forwarded port on the external interface because it doesn't work with
@@ -448,19 +469,16 @@ BUGS
 - "make install" on systems with rc.local appends a "filewall reload" command
   to the rc.local file. So the firewall will start after the network is up.
   You should change this so the firewall starts before the network is up.
-  If this is a problem, tell me where the command needs to go.
-
-- There is no support for using ipchains' REDIRECT target.
+  If this is a problem, tell me how to determine where the command needs to go.
 
 TODO
 ~~~~
 More testing
-Add services: vpn, cuseeme, vdolive, quake, unreal tournament, ...
+Add services: cuseeme, vdolive, quake, unreal tournament, ...
 Improve fwhelper
-Add support for iptables when linux-2.4 is ready
-Add support for cisco routers
+Add support for iptables now that linux-2.4 is ready (coming soonish)
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL: http://fwup.org/
-Date: 20000914
+Date: 20010211
 Author: raf <raf@raf.org>
